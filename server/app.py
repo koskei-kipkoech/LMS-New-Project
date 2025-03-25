@@ -385,5 +385,131 @@ def get_testimonials():
     ]
     return jsonify(testimonials)
 
+@app.route('/api/student/dashboard/<int:student_id>', methods=['GET', 'OPTIONS'])
+@jwt_required()
+def get_student_dashboard(student_id):
+    if request.method == 'OPTIONS':
+        return '', 204
+        
+    current_user_id = get_jwt_identity()
+    if current_user_id != student_id:
+        return jsonify({'error': 'Unauthorized access'}), 403
+
+    try:
+        # Get enrolled courses count
+        enrolled_courses = Enrollment.query.filter_by(student_id=student_id).count()
+
+        # Get completed courses count (assuming a course is completed when progress is 100%)
+        completed_courses = Enrollment.query.filter_by(
+            student_id=student_id,
+            progress=100
+        ).count()
+
+        # Calculate average score from all assignments
+        enrollments = Enrollment.query.filter_by(student_id=student_id).all()
+        total_score = 0
+        total_assignments = 0
+        for enrollment in enrollments:
+            if enrollment.score is not None:
+                total_score += enrollment.score
+                total_assignments += 1
+        average_score = round(total_score / total_assignments * 100) if total_assignments > 0 else 0
+
+        # Get recent activities
+        recent_enrollments = Enrollment.query\
+            .filter_by(student_id=student_id)\
+            .order_by(Enrollment.enrollment_date.desc())\
+            .limit(5)\
+            .all()
+
+        recent_activities = [{
+            'description': f"Enrolled in {enrollment.unit.title}",
+            'date': enrollment.enrollment_date.strftime('%Y-%m-%d %H:%M')
+        } for enrollment in recent_enrollments]
+
+        return jsonify({
+            'enrolledCourses': enrolled_courses,
+            'completedCourses': completed_courses,
+            'averageScore': average_score,
+            'recentActivities': recent_activities
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/student/units/<int:student_id>', methods=['GET', 'OPTIONS'])
+@jwt_required()
+def get_student_units(student_id):
+    if request.method == 'OPTIONS':
+        return '', 204
+
+    current_user_id = get_jwt_identity()
+    if current_user_id != student_id:
+        return jsonify({'error': 'Unauthorized access'}), 403
+
+    try:
+        # Validate student exists
+        student = User.query.filter_by(id=student_id, role='student').first()
+        if not student:
+            return jsonify({'error': 'Student not found'}), 404
+
+        # Validate and process pagination parameters with defaults
+        try:
+            page = request.args.get('page', 1, type=int)
+            per_page = request.args.get('per_page', 10, type=int)
+            
+            # Validate pagination parameters
+            if not isinstance(page, int) or not isinstance(per_page, int):
+                return jsonify({'error': 'Pagination parameters must be integers'}), 422
+            if page < 1:
+                return jsonify({'error': 'Page number must be greater than 0'}), 422
+            if per_page < 1 or per_page > 50:
+                return jsonify({'error': 'Items per page must be between 1 and 50'}), 422
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Invalid pagination parameters'}), 422
+
+        # Get enrolled units with pagination
+        enrollments = Enrollment.query\
+            .filter_by(student_id=student_id)\
+            .join(Unit)\
+            .join(User, Unit.teacher_id == User.id)\
+            .add_columns(
+                Unit.id,
+                Unit.title,
+                Unit.category,
+                User.username.label('teacher_name'),
+                Enrollment.enrollment_date,
+                Enrollment.progress
+            )\
+            .paginate(page=page, per_page=per_page, error_out=False)
+
+        # Return empty results if no enrollments found
+        if not enrollments.items:
+            return jsonify({
+                'units': [],
+                'total': 0,
+                'pages': 0,
+                'current_page': page
+            })
+
+        units_data = [{
+            'id': unit.id,
+            'title': unit.title,
+            'category': unit.category,
+            'teacher': unit.teacher_name,
+            'enrollmentDate': enrollment.enrollment_date.strftime('%Y-%m-%d'),
+            'progress': enrollment.progress or 0
+        } for enrollment, unit in enrollments.items]
+
+        return jsonify({
+            'units': units_data,
+            'total': enrollments.total,
+            'pages': enrollments.pages,
+            'current_page': page
+        })
+
+    except Exception as e:
+        return jsonify({'error': 'An error occurred while fetching student units'}), 500
+
 if __name__ == '__main__':
     app.run(port=5000, debug=True)

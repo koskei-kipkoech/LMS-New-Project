@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { unitService } from '../services/apiService';
 
 function AllUnits() {
@@ -9,8 +9,6 @@ function AllUnits() {
     const [currentPage, setCurrentPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [sortBy, setSortBy] = useState('title');
-
-    const navigate = useNavigate();
 
     const fetchUnits = useCallback(async () => {
         try {
