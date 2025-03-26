@@ -6,15 +6,22 @@ from datetime import datetime, timedelta
 import os
 import re
 import jwt
+from flask_cors import cross_origin
 from functools import wraps
 from database import db, init_db
 from sqlalchemy import func
-from models import User, Unit, Enrollment, Rating
+from models import User, Unit, Enrollment, Rating, ProfileSettings
 
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={
+    r"/*": {
+        "origins": "*",
+        "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        "allow_headers": ["Authorization", "Content-Type"]
+    }
+})
 
 # Configuration
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(os.path.abspath(os.path.dirname(__file__)), 'lms.db')
@@ -569,6 +576,33 @@ def get_unit_detail(unit_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/units/progress')
+@token_required
+def get_units_with_progress(current_user):
+    try:
+        # Query enrollments with progress > 30%
+        enrollments = Enrollment.query.filter(
+            Enrollment.student_id == current_user.id,
+            Enrollment.progress > 30
+        ).all()
+
+        # Get the corresponding units
+        units_data = []
+        for enrollment in enrollments:
+            unit = Unit.query.get(enrollment.unit_id)
+            if unit:
+                unit_data = {
+                    'id': unit.id,
+                    'title': unit.title,
+                    'teacher': unit.teacher.username,
+                    'progress': enrollment.progress
+                }
+                units_data.append(unit_data)
+
+        return jsonify(units_data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/testimonials')
 def get_testimonials():
     testimonials = [
@@ -669,6 +703,23 @@ def get_student_units(current_user, student_id):
     except Exception as e:
         return jsonify({'error': 'Failed to fetch student units'}), 422
 
+
+@app.route('/api/users/<int:user_id>', methods=['GET'])
+@token_required
+def get_user_details(current_user, user_id):
+    if current_user.id != user_id:
+        return jsonify({'error': 'Unauthorized access'}), 403
+
+    try:
+        user = User.query.get_or_404(user_id)
+        return jsonify({
+            'id': user.id,
+            'username': user.username,
+            'email': user.email,
+            'role': user.role
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/student/units/<int:student_id>/<int:unit_id>/progress', methods=['PUT'])
 @token_required
@@ -782,6 +833,180 @@ def get_teacher_units(current_user):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/profile/<int:user_id>', methods=['GET', 'PUT', 'POST', 'OPTIONS'])
+@cross_origin()
+@token_required
+def user_profile(current_user, user_id):
+    # Allow preflight OPTIONS request
+    if request.method == 'OPTIONS':
+        return '', 204
+
+    # Ensure the user is accessing their own profile
+    if current_user.id != user_id:
+        return jsonify({'error': 'Unauthorized access'}), 403
+
+    # POST: Create profile if it doesn't exist
+    if request.method == 'POST':
+        if current_user.profile_settings:
+            return jsonify({'error': 'Profile already exists'}), 400
+        
+        data = request.get_json() or {}
+        
+        try:
+            profile_settings = ProfileSettings(
+                user_id=current_user.id,
+                fullName=data.get('fullName', current_user.username),
+                theme=data.get('theme', 'light'),
+                notifications_enabled=data.get('notifications_enabled', True),
+                language=data.get('language', 'en'),
+                interests=data.get('interests', '')
+            )
+            db.session.add(profile_settings)
+            
+            # Update user details if provided
+            current_user.username = data.get('fullName', current_user.username)
+            current_user.bio = data.get('interests', current_user.bio)
+            
+            db.session.commit()
+            
+            return jsonify({
+                'message': 'Profile created successfully',
+                'profile': {
+                    'fullName': current_user.username,
+                    'email': current_user.email,
+                    'interests': current_user.bio,
+                    'theme': profile_settings.theme,
+                    'notifications_enabled': profile_settings.notifications_enabled,
+                    'language': profile_settings.language
+                }
+            }), 201
+        
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'error': str(e)}), 500
+
+    # GET: Return user profile data
+    if request.method == 'GET':
+        profile_settings = current_user.profile_settings
+        
+        if not profile_settings:
+            return jsonify({'error': 'Profile not found'}), 404
+
+        return jsonify({
+            'fullName': current_user.username,
+            'email': current_user.email,
+            'interests': current_user.bio or '',
+            'theme': profile_settings.theme,
+            'notifications_enabled': profile_settings.notifications_enabled,
+            'language': profile_settings.language
+        })
+
+    # PUT: Update user profile and profile settings
+    if request.method == 'PUT':
+        try:
+            data = request.get_json()
+            if not data:
+                return jsonify({'error': 'No data provided'}), 400
+
+            # Update basic user details
+            current_user.username = data.get('fullName', current_user.username)
+            current_user.bio = data.get('interests', current_user.bio)
+
+            # Retrieve or create profile settings
+            profile_settings = current_user.profile_settings
+            if not profile_settings:
+                profile_settings = ProfileSettings(
+                    user_id=current_user.id,
+                    theme=data.get('theme', 'light'),
+                    notifications_enabled=data.get('notifications_enabled', True),
+                    language=data.get('language', 'en')
+                )
+                db.session.add(profile_settings)
+            else:
+                # Update profile-related fields
+                profile_settings.theme = data.get('theme', profile_settings.theme)
+                profile_settings.notifications_enabled = data.get('notifications_enabled', profile_settings.notifications_enabled)
+                profile_settings.language = data.get('language', profile_settings.language)
+
+            db.session.commit()
+            
+            return jsonify({
+                'message': 'Profile updated successfully',
+                'profile': {
+                    'fullName': current_user.username,
+                    'email': current_user.email,
+                    'interests': current_user.bio,
+                    'theme': profile_settings.theme,
+                    'notifications_enabled': profile_settings.notifications_enabled,
+                    'language': profile_settings.language
+                }
+            })
+        
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/change-password/<int:user_id>', methods=['PATCH', 'OPTIONS'])
+def change_password(user_id):
+    if request.method == 'OPTIONS':
+        response = jsonify({})
+        response.headers.add('Access-Control-Allow-Methods', 'PATCH')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        return response, 204
+    
+    # Apply token_required decorator logic manually for non-OPTIONS requests
+    token = None
+    auth_header = request.headers.get('Authorization')
+
+    if not auth_header:
+        return jsonify({'message': 'Token is required'}), 401
+
+    try:
+        token = auth_header.split(" ")[1]
+    except IndexError:
+        return jsonify({'message': 'Token is missing'}), 401
+
+    if token in BLACKLIST:
+        return jsonify({'message': 'Token has been revoked'}), 401
+
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+        current_user = User.query.get(int(payload['sub']))
+        if not current_user:
+            return jsonify({'message': 'User not found'}), 404
+    except jwt.ExpiredSignatureError:
+        return jsonify({'message': 'Token has expired'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'message': 'Invalid token'}), 401
+
+    if current_user.id != user_id:
+        return jsonify({'error': 'Unauthorized access'}), 403
+
+    data = request.get_json()
+    current_password = data.get('current_password')
+    new_password = data.get('new_password')
+    email = data.get('email')
+
+    if not current_password or not new_password or not email:
+        return jsonify({'error': 'Current password, new password and email are required'}), 400
+
+    if email != current_user.email:
+        return jsonify({'error': 'Email verification failed. Please ensure you are using the correct account.'}), 401
+
+    if not current_user.check_password(current_password):
+        return jsonify({'error': 'Current password is incorrect'}), 401
+
+    if len(new_password) < 6:
+        return jsonify({'error': 'Password must be at least 6 characters long'}), 400
+
+    try:
+        current_user.set_password(new_password)
+        db.session.commit()
+        return jsonify({'message': 'Password updated successfully'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(port=5000, debug=True)
