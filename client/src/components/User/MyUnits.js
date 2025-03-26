@@ -2,16 +2,16 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import Sidebar from './sidebar';
 import axios from 'axios';
+import UpdateProgress from './UpdateProgress';
 
 function MyUnits() {
     const [units, setUnits] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [currentPage, setCurrentPage] = useState(1);
-    const [totalPages, setTotalPages] = useState(1);
+    
 
     useEffect(() => {
-        const studentId = localStorage.getItem('user_id');
+        const studentId = parseInt(localStorage.getItem('user_id'), 10);
         const fetchUnits = async () => {
             try {
                 const response = await axios.get(
@@ -20,22 +20,26 @@ function MyUnits() {
                         headers: {
                             'Authorization': `Bearer ${localStorage.getItem('token')}`
                         },
-                        params: {
-                            page: currentPage
-                        }
+                        
                     }
                 );
                 setUnits(response.data.units);
-                setTotalPages(response.data.pages);
+                
                 setError(null);
             } catch (error) {
-                setError('Failed to fetch units. Please try again later.');
+                if (error.response?.status === 403) {
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('user_id');
+                    window.location.href = '/login';
+                } else {
+                    setError('Failed to fetch units. Please try again later.');
+                }
             } finally {
                 setLoading(false);
             }
         };
         fetchUnits();
-    }, [currentPage]);
+    }, []);
 
     const handleUnenroll = async (unitId) => {
         if (!window.confirm('Are you sure you want to unenroll from this unit?')) return;
@@ -51,7 +55,13 @@ function MyUnits() {
             );
             setUnits(units.filter(unit => unit.id !== unitId));
         } catch (error) {
-            alert('Failed to unenroll from the unit. Please try again.');
+            if (error.response?.status === 403) {
+                localStorage.removeItem('token');
+                localStorage.removeItem('user_id');
+                window.location.href = '/login';
+            } else {
+                alert('Failed to unenroll from the unit. Please try again.');
+            }
         }
     };
 
@@ -112,17 +122,28 @@ function MyUnits() {
                                                         <td>{unit.category}</td>
                                                         <td>{unit.teacher}</td>
                                                         <td>
-                                                            <div className="progress" style={{ height: '20px' }}>
-                                                                <div
-                                                                    className="progress-bar"
-                                                                    role="progressbar"
-                                                                    style={{ width: `${unit.progress}%` }}
-                                                                    aria-valuenow={unit.progress}
-                                                                    aria-valuemin="0"
-                                                                    aria-valuemax="100"
-                                                                >
-                                                                    {unit.progress}%
+                                                            <div className="d-flex align-items-center gap-2">
+                                                                <div className="progress flex-grow-1" style={{ height: '20px' }}>
+                                                                    <div
+                                                                        className="progress-bar"
+                                                                        role="progressbar"
+                                                                        style={{ width: `${unit.progress}%` }}
+                                                                        aria-valuenow={unit.progress}
+                                                                        aria-valuemin="0"
+                                                                        aria-valuemax="100"
+                                                                    >
+                                                                        {unit.progress}%
+                                                                    </div>
                                                                 </div>
+                                                                <UpdateProgress
+                                                                    unitId={unit.id}
+                                                                    currentProgress={unit.progress}
+                                                                    onProgressUpdate={(newProgress) => {
+                                                                        setUnits(units.map(u => 
+                                                                            u.id === unit.id ? {...u, progress: newProgress} : u
+                                                                        ));
+                                                                    }}
+                                                                />
                                                             </div>
                                                         </td>
                                                         <td>
@@ -139,43 +160,7 @@ function MyUnits() {
                                         </table>
                                     </div>
 
-                                    {totalPages > 1 && (
-                                        <nav className="mt-4">
-                                            <ul className="pagination justify-content-center">
-                                                <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
-                                                    <button
-                                                        className="page-link"
-                                                        onClick={() => setCurrentPage(prev => prev - 1)}
-                                                        disabled={currentPage === 1}
-                                                    >
-                                                        Previous
-                                                    </button>
-                                                </li>
-                                                {[...Array(totalPages)].map((_, index) => (
-                                                    <li
-                                                        key={index}
-                                                        className={`page-item ${currentPage === index + 1 ? 'active' : ''}`}
-                                                    >
-                                                        <button
-                                                            className="page-link"
-                                                            onClick={() => setCurrentPage(index + 1)}
-                                                        >
-                                                            {index + 1}
-                                                        </button>
-                                                    </li>
-                                                ))}
-                                                <li className={`page-item ${currentPage === totalPages ? 'disabled' : ''}`}>
-                                                    <button
-                                                        className="page-link"
-                                                        onClick={() => setCurrentPage(prev => prev + 1)}
-                                                        disabled={currentPage === totalPages}
-                                                    >
-                                                        Next
-                                                    </button>
-                                                </li>
-                                            </ul>
-                                        </nav>
-                                    )}
+                                    
                                 </>
                             )}
                         </div>
