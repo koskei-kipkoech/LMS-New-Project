@@ -1,12 +1,16 @@
 from flask import Flask, jsonify, request
-from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 from flask_cors import CORS
-from flasgger import Swagger
 from flask_migrate import Migrate
+from flask_restful import Api
 from datetime import datetime, timedelta
 import os
+import re
+import jwt
+from functools import wraps
 from database import db, init_db
 from sqlalchemy import func
+from models import User, Unit, Enrollment, Rating
+
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -15,64 +19,167 @@ CORS(app)
 # Configuration
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(os.path.abspath(os.path.dirname(__file__)), 'lms.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET', 'super-secret-key')
-app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=5)
+app.config['SECRET_KEY'] = os.environ.get('JWT_SECRET', 'super-secret-key')
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=24)
+app.config['JWT_BLACKLIST_ENABLED'] = True
+app.config['JWT_BLACKLIST_TOKEN_CHECKS'] = ['access']
 
 # Initialize extensions
 init_db(app)
-jwt = JWTManager(app)
-swagger = Swagger(app)
+api = Api(app)
 migrate = Migrate(app, db)
 
 # Import models after db initialization to avoid circular imports
-from models import User, Unit, Enrollment, Rating
 
 # Create database tables
 with app.app_context():
     db.create_all()
+
+# JWT Configuration
+BLACKLIST = set()
+SECRET_KEY = app.config['SECRET_KEY']
+
+def requires_teacher_role(f):
+    @wraps(f)
+    def decorated(current_user, *args, **kwargs):
+        if current_user.role != 'teacher':
+            return jsonify({'message': 'Teacher access required'}), 403
+        return f(current_user, *args, **kwargs)
+    return decorated
+
+
+def generate_token(user_id):
+    """Generate a new JWT token for a user"""
+    try:
+        payload = {
+            'exp': datetime.utcnow() + timedelta(hours=24),
+            'iat': datetime.utcnow(),
+            'sub': str(user_id)
+        }
+        return jwt.encode(
+            payload,
+            SECRET_KEY,
+            algorithm='HS256'
+        )
+    except Exception as e:
+        return str(e)
+
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        auth_header = request.headers.get('Authorization')
+
+        if auth_header:
+            try:
+                token = auth_header.split(" ")[1]
+            except IndexError:
+                return jsonify({'message': 'Token is missing'}), 401
+
+        if not token:
+            return jsonify({'message': 'Token is required'}), 401
+
+        if token in BLACKLIST:
+            return jsonify({'message': 'Token has been revoked'}), 401
+
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+            # Convert 'sub' back to int when retrieving the user
+            current_user = User.query.get(int(payload['sub']))
+            if not current_user:
+                return jsonify({'message': 'User not found'}), 404
+        except jwt.ExpiredSignatureError:
+            return jsonify({'message': 'Token has expired'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'message': 'Invalid token'}), 401
+
+        return f(current_user, *args, **kwargs)
+
+    return decorated
+
 
 @app.route('/')
 def welcome():
     return "Welcome to the LMS API!"
 
 
+@token_required
+@requires_teacher_role
+def get_teacher_dashboard(current_user, teacher_id):
+    if current_user.id != teacher_id:
+        return jsonify({'message': 'Unauthorized access'}), 403
+    
+    total_units = Unit.query.filter_by(teacher_id=teacher_id).count()
+    total_students = Enrollment.query\
+        .join(Unit, Enrollment.unit_id == Unit.id)\
+        .filter(Unit.teacher_id == teacher_id)\
+        .distinct(Enrollment.student_id)\
+        .count()
+
+    recent_activities = db.session.query(
+        func.date(Enrollment.enrollment_date).label('date'),
+        func.count().label('count')
+    ).join(Unit).filter(Unit.teacher_id == teacher_id)\
+     .group_by(func.date(Enrollment.enrollment_date))\
+     .order_by(func.date(Enrollment.enrollment_date).desc())\
+     .limit(5).all()
+
+    return jsonify({
+        'totalUnits': total_units,
+        'totalStudents': total_students,
+        'recentActivities': [
+            {'date': date, 'description': f'{count} new enrollments'}
+            for date, count in recent_activities
+        ]
+    })
+
+
 # Authentication routes
 @app.route('/api/login', methods=['POST'])
 def login():
-    
     data = request.get_json()
+    if not data or not data.get('email') or not data.get('password'):
+        return jsonify({'error': 'Missing credentials'}), 400
+
     user = User.query.filter_by(email=data['email']).first()
-    
     if not user or not user.check_password(data['password']):
         return jsonify({'error': 'Invalid credentials'}), 401
-    
-    access_token = create_access_token(identity=user.id)
-    return jsonify({
-        'access_token': access_token,
+
+    token = generate_token(user.id)
+    response = jsonify({
+        'message': 'Login successful',
+        'access_token': token,
         'user_id': user.id,
         'role': user.role
     })
+    response.set_cookie('token', token, httponly=True, secure=True)
+    return response, 200
 
 @app.route('/api/teacher/login', methods=['POST', 'OPTIONS'])
 def teacher_login():
     if request.method == 'OPTIONS':
         return '', 200
-        
+
     data = request.get_json()
+    if not data or not data.get('email') or not data.get('password'):
+        return jsonify({'error': 'Missing credentials'}), 400
+
     user = User.query.filter_by(email=data['email'], role='teacher').first()
-    
     if not user:
         return jsonify({'error': 'Teacher account not found'}), 404
-    
+
     if not user.check_password(data['password']):
         return jsonify({'error': 'Invalid credentials'}), 401
-    
-    access_token = create_access_token(identity=user.id)
-    return jsonify({
-        'access_token': access_token,
+
+    token = generate_token(user.id)
+    response = jsonify({
+        'message': 'Login successful',
+        'access_token': token,
         'user_id': user.id,
         'role': user.role
     })
+    response.set_cookie('token', token, httponly=True, secure=True)
+    return response, 200
 
 @app.route('/api/register', methods=['POST', 'OPTIONS'])
 def register():
@@ -80,6 +187,9 @@ def register():
         return '', 204
 
     data = request.get_json()
+    if not data or not data.get('username') or not data.get('email') or not data.get('password'):
+        return jsonify({'error': 'Missing required fields'}), 400
+
     if User.query.filter_by(email=data['email']).first():
         return jsonify({'error': 'Email already exists'}), 409
     
@@ -92,7 +202,15 @@ def register():
     db.session.add(new_user)
     db.session.commit()
     
-    return jsonify({'message': 'User created successfully'}), 201
+    token = generate_token(new_user.id)
+    response = jsonify({
+        'message': 'User created successfully',
+        'access_token': token,
+        'user_id': new_user.id,
+        'role': new_user.role
+    })
+    response.set_cookie('token', token, httponly=True, secure=True)
+    return response, 201
 
 @app.route('/api/teacher/register', methods=['POST', 'OPTIONS'])
 def teacher_register():
@@ -100,6 +218,9 @@ def teacher_register():
         return '', 204
 
     data = request.get_json()
+    if not data or not data.get('username') or not data.get('email') or not data.get('password'):
+        return jsonify({'error': 'Missing required fields'}), 400
+
     if User.query.filter_by(email=data['email']).first():
         return jsonify({'error': 'Email already exists'}), 409
     
@@ -114,7 +235,15 @@ def teacher_register():
     db.session.add(new_teacher)
     db.session.commit()
     
-    return jsonify({'message': 'Teacher registered successfully'}), 201
+    token = generate_token(new_teacher.id)
+    response = jsonify({
+        'message': 'Teacher registered successfully',
+        'access_token': token,
+        'user_id': new_teacher.id,
+        'role': new_teacher.role
+    })
+    response.set_cookie('token', token, httponly=True, secure=True)
+    return response, 201
 
 # Protected routes
 @app.route('/api/units', methods=['GET'])
@@ -183,6 +312,7 @@ def get_latest_units():
         'total_enrolled': len(unit.enrollments)
     } for unit in units])
 
+
 @app.route('/api/teacher/')
 def get_featured_teachers():
     featured_teachers = User.query\
@@ -217,6 +347,13 @@ def get_popular_units():
         .order_by(func.count(Enrollment.id).desc(), Unit.average_rating.desc())\
         .limit(6)\
         .all()
+
+@app.route('/api/units/recommended')
+def get_recommended_units():
+    units = Unit.query\
+        .order_by(Unit.average_rating.desc())\
+        .limit(3)\
+        .all()
     
     return jsonify([{
         'id': unit.id,
@@ -235,13 +372,26 @@ def get_popular_units():
     } for unit in units])
 
 @app.route('/api/enrollments', methods=['POST'])
-@jwt_required()
-def create_enrollment():
-    current_user_id = get_jwt_identity()
+@token_required
+def create_enrollment(current_user):
     data = request.get_json()
     
+    # Check if unit exists
+    unit = Unit.query.get(data['unit_id'])
+    if not unit:
+        return jsonify({'error': 'Unit not found'}), 404
+
+    # Check for existing enrollment
+    existing_enrollment = Enrollment.query.filter_by(
+        student_id=current_user.id,
+        unit_id=data['unit_id']
+    ).first()
+    
+    if existing_enrollment:
+        return jsonify({'error': 'Already enrolled in this unit'}), 409
+
     enrollment = Enrollment(
-        student_id=current_user_id,
+        student_id=current_user.id,
         unit_id=data['unit_id'],
         enrollment_date=datetime.utcnow()
     )
@@ -250,22 +400,23 @@ def create_enrollment():
     
     return jsonify({'message': 'Enrollment successful'}), 201
 
+
 @app.route('/api/ratings', methods=['POST'])
-@jwt_required()
-def create_rating():
-    current_user_id = get_jwt_identity()
+@token_required
+def create_rating(current_user):
     data = request.get_json()
     
     rating = Rating(
         unit_id=data['unit_id'],
-        user_id=current_user_id,
+        student_id=current_user.id,
         score=data['score'],
-        comment=data.get('comment')
+        comment=data.get('comment')  # Ensure your Rating model has a 'comment' field if needed.
     )
     db.session.add(rating)
     db.session.commit()
     
     return jsonify({'message': 'Rating submitted successfully'}), 201
+
 
 # Error handlers
 @app.errorhandler(404)
@@ -340,6 +491,21 @@ def get_unit_detail(unit_id):
         unit = Unit.query.get_or_404(unit_id)
         teacher = User.query.get(unit.teacher_id)
 
+        # Check if the current user is enrolled
+        is_enrolled = False
+        auth_header = request.headers.get('Authorization')
+        if auth_header:
+            try:
+                token = auth_header.split(" ")[1]
+                payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+                current_user_id = int(payload['sub'])
+                is_enrolled = Enrollment.query.filter_by(
+                    student_id=current_user_id,
+                    unit_id=unit_id
+                ).first() is not None
+            except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, IndexError):
+                pass
+
         unit_data = {
             'id': unit.id,
             'title': unit.title,
@@ -355,11 +521,31 @@ def get_unit_detail(unit_id):
             'average_rating': unit.average_rating,
             'rating_count': unit.rating_count,
             'total_enrolled': len(unit.enrollments),
+            'video_url': unit.video_url,
+            'is_enrolled': is_enrolled,
             'assignments': [{
                 'id': assignment.id,
                 'title': assignment.title
             } for assignment in unit.assignments]
         }
+
+        # Get related units (same category, excluding current unit)
+        related_units = Unit.query.filter(
+            Unit.category == unit.category,
+            Unit.id != unit.id
+        ).limit(4).all()
+
+        unit_data['related_units'] = [{
+            'id': related.id,
+            'title': related.title,
+            'description': related.description,
+            'teacher': {
+                'id': related.teacher_id,
+                'name': related.teacher.username
+            },
+            'average_rating': related.average_rating,
+            'total_enrolled': len(related.enrollments)
+        } for related in related_units]
 
         return jsonify(unit_data)
     except Exception as e:
@@ -386,42 +572,30 @@ def get_testimonials():
     return jsonify(testimonials)
 
 @app.route('/api/student/dashboard/<int:student_id>', methods=['GET', 'OPTIONS'])
-@jwt_required()
-def get_student_dashboard(student_id):
+@token_required
+def get_student_dashboard(current_user, student_id):
     if request.method == 'OPTIONS':
         return '', 204
-        
-    current_user_id = get_jwt_identity()
-    if current_user_id != student_id:
+
+    # Use current_user.id directly instead of calling get_jwt_identity() again.
+    if current_user.id != student_id:
         return jsonify({'error': 'Unauthorized access'}), 403
 
     try:
-        # Get enrolled courses count
         enrolled_courses = Enrollment.query.filter_by(student_id=student_id).count()
+        completed_courses = Enrollment.query.filter_by(student_id=student_id, progress=100).count()
 
-        # Get completed courses count (assuming a course is completed when progress is 100%)
-        completed_courses = Enrollment.query.filter_by(
-            student_id=student_id,
-            progress=100
-        ).count()
-
-        # Calculate average score from all assignments
         enrollments = Enrollment.query.filter_by(student_id=student_id).all()
         total_score = 0
         total_assignments = 0
         for enrollment in enrollments:
-            if enrollment.score is not None:
-                total_score += enrollment.score
+            if enrollment.grade is not None:
+                total_score += enrollment.grade
                 total_assignments += 1
         average_score = round(total_score / total_assignments * 100) if total_assignments > 0 else 0
 
-        # Get recent activities
-        recent_enrollments = Enrollment.query\
-            .filter_by(student_id=student_id)\
-            .order_by(Enrollment.enrollment_date.desc())\
-            .limit(5)\
-            .all()
-
+        # Optionally, fetch recent activities
+        recent_enrollments = Enrollment.query.filter_by(student_id=student_id).order_by(Enrollment.enrollment_date.desc()).limit(5).all()
         recent_activities = [{
             'description': f"Enrolled in {enrollment.unit.title}",
             'date': enrollment.enrollment_date.strftime('%Y-%m-%d %H:%M')
@@ -433,83 +607,163 @@ def get_student_dashboard(student_id):
             'averageScore': average_score,
             'recentActivities': recent_activities
         })
-
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/student/units/<int:student_id>', methods=['GET', 'OPTIONS'])
-@jwt_required()
-def get_student_units(student_id):
-    if request.method == 'OPTIONS':
-        return '', 204
+@app.route('/api/student/units/<int:student_id>')
 
-    current_user_id = get_jwt_identity()
-    if current_user_id != student_id:
+@token_required
+def get_student_units(current_user, student_id):
+    if current_user.id != student_id or current_user.role != 'student':
         return jsonify({'error': 'Unauthorized access'}), 403
 
     try:
-        # Validate student exists
-        student = User.query.filter_by(id=student_id, role='student').first()
-        if not student:
-            return jsonify({'error': 'Student not found'}), 404
-
-        # Validate and process pagination parameters with defaults
-        try:
-            page = request.args.get('page', 1, type=int)
-            per_page = request.args.get('per_page', 10, type=int)
-            
-            # Validate pagination parameters
-            if not isinstance(page, int) or not isinstance(per_page, int):
-                return jsonify({'error': 'Pagination parameters must be integers'}), 422
-            if page < 1:
-                return jsonify({'error': 'Page number must be greater than 0'}), 422
-            if per_page < 1 or per_page > 50:
-                return jsonify({'error': 'Items per page must be between 1 and 50'}), 422
-        except (TypeError, ValueError):
-            return jsonify({'error': 'Invalid pagination parameters'}), 422
-
-        # Get enrolled units with pagination
-        enrollments = Enrollment.query\
-            .filter_by(student_id=student_id)\
-            .join(Unit)\
-            .join(User, Unit.teacher_id == User.id)\
-            .add_columns(
-                Unit.id,
-                Unit.title,
-                Unit.category,
-                User.username.label('teacher_name'),
-                Enrollment.enrollment_date,
-                Enrollment.progress
-            )\
-            .paginate(page=page, per_page=per_page, error_out=False)
-
-        # Return empty results if no enrollments found
-        if not enrollments.items:
-            return jsonify({
-                'units': [],
-                'total': 0,
-                'pages': 0,
-                'current_page': page
-            })
-
-        units_data = [{
-            'id': unit.id,
-            'title': unit.title,
-            'category': unit.category,
-            'teacher': unit.teacher_name,
-            'enrollmentDate': enrollment.enrollment_date.strftime('%Y-%m-%d'),
-            'progress': enrollment.progress or 0
-        } for enrollment, unit in enrollments.items]
-
-        return jsonify({
-            'units': units_data,
-            'total': enrollments.total,
-            'pages': enrollments.pages,
-            'current_page': page
-        })
-
+        enrollments = Enrollment.query.filter_by(student_id=student_id).all()
+        units_data = [
+            {
+                'id': enrollment.unit.id,
+                'title': enrollment.unit.title,
+                'description': enrollment.unit.description,
+                'category': enrollment.unit.category,
+                'teacher': enrollment.unit.teacher.username,
+                'progress': enrollment.progress or 0
+            }
+            for enrollment in enrollments
+        ]
+        return jsonify({'units': units_data})
     except Exception as e:
-        return jsonify({'error': 'An error occurred while fetching student units'}), 500
+        return jsonify({'error': 'Failed to fetch student units'}), 422
+
+    try:
+        enrollments = Enrollment.query.filter_by(student_id=student_id).all()
+        units_data = [
+            {
+                'id': enrollment.unit.id,
+                'title': enrollment.unit.title,
+                'description': enrollment.unit.description,
+                'category': enrollment.unit.category,
+                'teacher': enrollment.unit.teacher.username,
+                'progress': enrollment.progress or 0
+            }
+            for enrollment in enrollments
+        ]
+        return jsonify({'units': units_data})
+    except Exception as e:
+        return jsonify({'error': 'Failed to fetch student units'}), 422
+
+
+@app.route('/api/student/units/<int:student_id>/<int:unit_id>/progress', methods=['PUT'])
+@token_required
+def update_unit_progress(current_user, student_id, unit_id):
+    """Update student's progress in a unit."""
+    if current_user.id != student_id:
+        return jsonify({'error': 'Unauthorized access'}), 403
+
+    data = request.get_json()
+    progress = data.get('progress')
+    
+    if progress is None or not isinstance(progress, int) or progress < 0 or progress > 100:
+        return jsonify({'error': 'Invalid progress value'}), 400
+
+    enrollment = Enrollment.query.filter_by(student_id=student_id, unit_id=unit_id).first()
+    if not enrollment:
+        return jsonify({'error': 'Enrollment not found'}), 404
+
+    enrollment.progress = progress
+    db.session.commit()
+    
+    return jsonify({'message': 'Progress updated successfully', 'progress': progress}), 200
+
+
+@app.route('/api/student/units/<int:student_id>/<int:unit_id>', methods=['DELETE'])
+@token_required
+def unenroll_from_unit(current_user, student_id, unit_id):
+    """Unenroll a student from a unit."""
+    if current_user.id != student_id:
+        return jsonify({'error': 'Unauthorized access'}), 403
+
+    enrollment = Enrollment.query.filter_by(student_id=student_id, unit_id=unit_id).first()
+    if not enrollment:
+        return jsonify({'error': 'Enrollment not found'}), 404
+
+    db.session.delete(enrollment)
+    db.session.commit()
+    
+    return jsonify({'message': 'Successfully unenrolled from the unit'}), 200
+
+
+@app.route('/api/units/create', methods=['POST'])
+@token_required
+def create_unit(current_user):
+    """Create a new unit by a teacher."""
+    # Ensure only teachers can create units
+    if current_user.role != 'teacher':
+        return jsonify({'error': 'Only teachers can create units'}), 403
+
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 422
+
+    validation_errors = {}
+    if not data.get('title'):
+        validation_errors['title'] = 'Title is required'
+    if not data.get('description'):
+        validation_errors['description'] = 'Description is required'
+    if not data.get('category'):
+        validation_errors['category'] = 'Category is required'
+    if not data.get('video_url'):
+        validation_errors['video_url'] = 'Video URL is required'
+    else:
+        youtube_regex = r'^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.?be)\/.+'
+        if not re.match(youtube_regex, data['video_url']):
+            validation_errors['video_url'] = 'Invalid YouTube URL'
+        
+    if validation_errors:
+        return jsonify({'error': 'Validation failed', 'details': validation_errors}), 422
+
+    # Validate dates if provided
+    start_date = None
+    end_date = None
+    try:
+        if data.get('start_date'):
+            start_date = datetime.strptime(data['start_date'], '%Y-%m-%d')
+        if data.get('end_date'):
+            end_date = datetime.strptime(data['end_date'], '%Y-%m-%d')
+            if start_date and end_date < start_date:
+                return jsonify({'error': 'End date must be after start date'}), 422
+    except ValueError:
+        return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 422
+
+    new_unit = Unit(
+        title=data['title'],
+        description=data['description'],
+        category=data.get('category'),
+        video_url=data.get('video_url'),
+        teacher_id=current_user.id,
+        start_date=start_date,
+        end_date=end_date
+    )
+    
+    db.session.add(new_unit)
+    db.session.commit()
+    
+    return jsonify({
+        'message': 'Unit created successfully',
+        'unit': new_unit.to_dict()
+    }), 201
+
+
+
+@app.route('/api/teacher/units', methods=['GET'])
+@token_required
+@requires_teacher_role
+def get_teacher_units(current_user):
+    try:
+        units = Unit.query.filter_by(teacher_id=current_user.id).all()
+        return jsonify([unit.to_dict() for unit in units])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 if __name__ == '__main__':
     app.run(port=5000, debug=True)

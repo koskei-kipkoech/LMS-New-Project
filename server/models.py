@@ -68,6 +68,8 @@ class Unit(db.Model):
     title = db.Column(db.String(120), nullable=False)
     description = db.Column(db.Text)
     category = db.Column(db.String(50))
+    video_url = db.Column(db.String(505))  # YouTube video URL
+    
     start_date = db.Column(db.DateTime)
     end_date = db.Column(db.DateTime)
     teacher_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
@@ -81,6 +83,22 @@ class Unit(db.Model):
 
     def __repr__(self):
         return f'<Unit {self.title}>'
+        
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'title': self.title,
+            'description': self.description,
+            'category': self.category,
+            'video_url': self.video_url,
+            'teacher': self.teacher.username,
+            'teacher_id': self.teacher_id,
+            'start_date': self.start_date.isoformat() if self.start_date else None,
+            'end_date': self.end_date.isoformat() if self.end_date else None,
+            'average_rating': self.average_rating,
+            'rating_count': self.rating_count,
+            'progress': 0  # Default progress, will be overridden by enrollment data when needed
+        }
 
 class Enrollment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -89,6 +107,7 @@ class Enrollment(db.Model):
     enrollment_date = db.Column(db.DateTime, default=datetime.utcnow)
     grade = db.Column(db.Float)
     feedback = db.Column(db.Text)
+    progress = db.Column(db.Integer, default=0)
 
     def __repr__(self):
         return f'<Enrollment {self.student_id}-{self.unit_id}>'

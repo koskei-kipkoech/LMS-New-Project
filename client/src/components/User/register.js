@@ -26,7 +26,7 @@ function Register(){
             if (response.status === 201) {
                 alert('Registration successful!');
                 // Redirect to login page
-                window.location.href = '/login';
+                window.location.href = '/user-login';
             }
         } catch (error) {
             if (error.response && error.response.status === 409) {

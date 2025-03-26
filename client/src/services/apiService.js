@@ -35,7 +35,8 @@ export const unitService = {
         );
         return response;
     },
-  getUnitDetails: (id) => api.get(`/units/${id}`)
+  getUnitDetails: (id) => api.get(`/units/${id}`),
+  createUnit: (unitData) => api.post('/units/create', unitData)
 };
 
 export const enrollmentService = {
