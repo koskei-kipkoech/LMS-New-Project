@@ -348,6 +348,24 @@ def get_popular_units():
         .limit(6)\
         .all()
 
+    units_data = [{
+        'id': unit.id,
+        'title': unit.title,
+        'description': unit.description,
+        'category': unit.category,
+        'start_date': unit.start_date.isoformat() if unit.start_date else None,
+        'end_date': unit.end_date.isoformat() if unit.end_date else None,
+        'teacher': {
+            'id': unit.teacher_id,
+            'name': unit.teacher.username
+        },
+        'average_rating': unit.average_rating,
+        'rating_count': unit.rating_count,
+        'total_enrolled': len(unit.enrollments)
+    } for unit in units]
+
+    return jsonify(units_data)
+
 @app.route('/api/units/recommended')
 def get_recommended_units():
     units = Unit.query\
