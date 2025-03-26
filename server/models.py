@@ -19,7 +19,7 @@ class User(db.Model):
     ratings = db.relationship('Rating', backref='student', lazy=True)
     enrollments = db.relationship('Enrollment', backref='student', lazy=True)
     performance = db.relationship('Performance', backref='user', lazy=True)
-    profile_settings = db.relationship('ProfileSettings', backref='user', uselist=False, lazy=True)
+    profile_settings = db.relationship('ProfileSettings', back_populates='user', uselist=False, lazy=True)
 
     def set_password(self, password):
         password_bytes = password.encode('utf-8')
@@ -129,7 +129,7 @@ class ProfileSettings(db.Model):
     notifications_enabled = db.Column(db.Boolean, default=True)
     theme = db.Column(db.String(20), default='light')
     language = db.Column(db.String(10), default='en')
-
+    user = db.relationship('User', back_populates='profile_settings')
     def __repr__(self):
         return f'<ProfileSettings {self.user_id}>'
 
