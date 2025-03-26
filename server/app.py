@@ -603,6 +603,88 @@ def get_units_with_progress(current_user):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/profile/<int:user_id>', methods=['GET', 'POST', 'PUT'])
+@token_required
+def manage_profile(current_user, user_id):
+    if current_user.id != user_id:
+        return jsonify({'error': 'Unauthorized access'}), 403
+
+    if request.method == 'GET':
+        profile = ProfileSettings.query.filter_by(user_id=user_id).first()
+        if not profile:
+            return jsonify({'error': 'Profile not found'}), 404
+
+        user = User.query.get(user_id)
+        return jsonify({
+            'fullName': user.username,
+            'email': user.email,
+            'interests': user.bio,
+            'theme': profile.theme,
+            'notifications_enabled': profile.notifications_enabled,
+            'language': profile.language
+        })
+
+    data = request.get_json()
+    
+    if request.method == 'POST':
+        if ProfileSettings.query.filter_by(user_id=user_id).first():
+            return jsonify({'error': 'Profile already exists'}), 409
+
+        profile = ProfileSettings(
+            user_id=user_id,
+            theme=data.get('theme', 'light'),
+            notifications_enabled=data.get('notifications_enabled', True),
+            language=data.get('language', 'en')
+        )
+        
+        user = User.query.get(user_id)
+        if user:
+            user.username = data.get('fullName', user.username)
+            user.bio = data.get('interests', '')
+
+        db.session.add(profile)
+        db.session.commit()
+
+        return jsonify({
+            'message': 'Profile created successfully',
+            'profile': {
+                'fullName': user.username,
+                'email': user.email,
+                'interests': user.bio,
+                'theme': profile.theme,
+                'notifications_enabled': profile.notifications_enabled,
+                'language': profile.language
+            }
+        }), 201
+
+    elif request.method == 'PUT':
+        profile = ProfileSettings.query.filter_by(user_id=user_id).first()
+        if not profile:
+            return jsonify({'error': 'Profile not found'}), 404
+
+        profile.theme = data.get('theme', profile.theme)
+        profile.notifications_enabled = data.get('notifications_enabled', profile.notifications_enabled)
+        profile.language = data.get('language', profile.language)
+
+        user = User.query.get(user_id)
+        if user:
+            user.username = data.get('fullName', user.username)
+            user.bio = data.get('interests', user.bio)
+
+        db.session.commit()
+
+        return jsonify({
+            'message': 'Profile updated successfully',
+            'profile': {
+                'fullName': user.username,
+                'email': user.email,
+                'interests': user.bio,
+                'theme': profile.theme,
+                'notifications_enabled': profile.notifications_enabled,
+                'language': profile.language
+            }
+        })
+
 @app.route('/api/testimonials')
 def get_testimonials():
     testimonials = [
@@ -718,6 +800,37 @@ def get_user_details(current_user, user_id):
             'email': user.email,
             'role': user.role
         })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/teacher/enrolled-students/<int:teacher_id>', methods=['GET'])
+@token_required
+@requires_teacher_role
+def get_enrolled_students(current_user, teacher_id):
+    if current_user.id != teacher_id:
+        return jsonify({'error': 'Unauthorized access'}), 403
+
+    try:
+        # Query enrollments for all units taught by this teacher
+        enrollments = db.session.query(
+            Enrollment, Unit, User
+        ).join(
+            Unit, Enrollment.unit_id == Unit.id
+        ).join(
+            User, Enrollment.student_id == User.id
+        ).filter(
+            Unit.teacher_id == teacher_id
+        ).all()
+
+        # Format the response
+        students_data = [{
+            'student_name': student.username,
+            'unit_title': unit.title,
+            'username': student.email,
+            'enrollment_id': enrollment.id
+        } for enrollment, unit, student in enrollments]
+
+        return jsonify({'enrolled_students': students_data})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
