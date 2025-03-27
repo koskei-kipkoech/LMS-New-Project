@@ -162,6 +162,7 @@ class Submission(db.Model):
     student_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     submission_text = db.Column(db.Text, nullable=True)  # Optional text explanation
     document_url = db.Column(db.String(255), nullable=True)  # URL to the submitted document
+    submission_link = db.Column(db.String(255), nullable=True)  # URL to external document
     submitted_at = db.Column(db.DateTime, default=datetime.utcnow)
     grade = db.Column(db.Float)  # Grade can be updated later
     feedback = db.Column(db.Text)
