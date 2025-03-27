@@ -18,7 +18,7 @@ function AddUnit(){
         
         try {
             const teacherId = localStorage.getItem('user_id');
-            const response = await axios.post(
+            await axios.post(
                 'http://localhost:5000/api/units/create',
                 {
                     title,

@@ -11,10 +11,7 @@ function CategoryUnits() {
     const [sortBy, setSortBy] = useState('title');
     const [category, setCategory] = useState('Grade 1');
 
-    useEffect(() => {
-        fetchUnits();
-    }, [currentPage, sortBy, category, fetchUnits]);
-
+    
     const fetchUnits = useCallback(async () => {
         try {
             setLoading(true);
@@ -36,6 +33,10 @@ function CategoryUnits() {
             setLoading(false);
         }
     }, [currentPage, sortBy, category]);
+    useEffect(() => {
+        fetchUnits();
+    }, [currentPage, sortBy, category, fetchUnits]);
+
 
     if (loading) return <div className="text-center mt-5"><div className="spinner-border" role="status"></div></div>;
     if (error) return <div className="alert alert-danger mt-5">{error}</div>;
