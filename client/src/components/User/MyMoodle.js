@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
 import axios from 'axios';
 import Sidebar from './sidebar';
 import SubmissionModal from './submission';
@@ -40,7 +39,17 @@ function MyMoodle() {
                             Authorization: `Bearer ${localStorage.getItem('token')}`
                         }
                     });
-                    setAssignments(response.data);
+                    
+                    // Retrieve completed assignments from local storage
+                    const completedAssignments = JSON.parse(localStorage.getItem('completedAssignments') || '[]');
+                    
+                    // Mark assignments as completed if they're in the local storage
+                    const updatedAssignments = response.data.map(assignment => ({
+                        ...assignment,
+                        completed: completedAssignments.includes(assignment.id)
+                    }));
+
+                    setAssignments(updatedAssignments);
                 } catch (error) {
                     console.error('Error fetching assignments:', error);
                 } finally {
@@ -54,6 +63,23 @@ function MyMoodle() {
     const openSubmissionModal = (assignmentId) => {
         setSelectedAssignmentId(assignmentId);
         setSubmissionModalOpen(true);
+    };
+
+    const handleSubmissionComplete = (assignmentId) => {
+        // Update the specific assignment's completed status
+        const updatedAssignments = assignments.map(assignment => 
+            assignment.id === assignmentId 
+                ? { ...assignment, completed: true } 
+                : assignment
+        );
+        setAssignments(updatedAssignments);
+
+        // Store completed assignments in local storage
+        const completedAssignments = JSON.parse(localStorage.getItem('completedAssignments') || '[]');
+        if (!completedAssignments.includes(assignmentId)) {
+            completedAssignments.push(assignmentId);
+            localStorage.setItem('completedAssignments', JSON.stringify(completedAssignments));
+        }
     };
 
     return (
@@ -121,6 +147,7 @@ function MyMoodle() {
                 show={submissionModalOpen} 
                 onHide={() => setSubmissionModalOpen(false)}
                 assignmentId={selectedAssignmentId}
+                onSubmissionComplete={handleSubmissionComplete}
             />
         </div>
     );
