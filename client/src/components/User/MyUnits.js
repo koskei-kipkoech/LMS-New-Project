@@ -15,7 +15,7 @@ function MyUnits() {
         const fetchUnits = async () => {
             try {
                 const response = await axios.get(
-                    `http://localhost:5000/api/student/units/${studentId}`,
+                    `http://localhost:5000/api/student-enrolled-units/${studentId}`,
                     {
                         headers: {
                             'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -46,7 +46,7 @@ function MyUnits() {
 
         try {
             await axios.delete(
-                `http://localhost:5000/api/student/units/${localStorage.getItem('user_id')}/${unitId}`,
+                `http://localhost:5000/api/student-enrolled-units/${localStorage.getItem('user_id')}/${unitId}`,
                 {
                     headers: {
                         'Authorization': `Bearer ${localStorage.getItem('token')}`
