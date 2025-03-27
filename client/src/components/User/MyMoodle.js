@@ -2,12 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 import Sidebar from './sidebar';
+import SubmissionModal from './submission';
 
 function MyMoodle() {
     const [assignments, setAssignments] = useState([]);
     const [selectedUnit, setSelectedUnit] = useState('');
     const [units, setUnits] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [submissionModalOpen, setSubmissionModalOpen] = useState(false);
+    const [selectedAssignmentId, setSelectedAssignmentId] = useState(null);
 
     useEffect(() => {
         const fetchUnits = async () => {
@@ -47,6 +50,11 @@ function MyMoodle() {
             fetchAssignments();
         }
     }, [selectedUnit]);
+
+    const openSubmissionModal = (assignmentId) => {
+        setSelectedAssignmentId(assignmentId);
+        setSubmissionModalOpen(true);
+    };
 
     return (
         <div className='container mt-4'>
@@ -88,7 +96,10 @@ function MyMoodle() {
                                                     </span>
                                                     {!assignment.completed && (
                                                         <div className="mt-2">
-                                                            <button className="btn btn-primary btn-sm">
+                                                            <button 
+                                                                className="btn btn-primary btn-sm"
+                                                                onClick={() => openSubmissionModal(assignment.id)}
+                                                            >
                                                                 Submit Assignment
                                                             </button>
                                                         </div>
@@ -105,6 +116,12 @@ function MyMoodle() {
                     </div>
                 </section>
             </div>
+
+            <SubmissionModal
+                show={submissionModalOpen} 
+                onHide={() => setSubmissionModalOpen(false)}
+                assignmentId={selectedAssignmentId}
+            />
         </div>
     );
 }
