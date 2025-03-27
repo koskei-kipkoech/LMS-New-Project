@@ -10,7 +10,7 @@ from flask_cors import cross_origin
 from functools import wraps
 from database import db, init_db
 from sqlalchemy import func
-from models import User, Unit, Enrollment, Rating, ProfileSettings
+from models import User, Unit, Enrollment, Rating, ProfileSettings, Assignment
 
 
 # Initialize Flask app
@@ -187,6 +187,62 @@ def teacher_login():
     })
     response.set_cookie('token', token, httponly=True, secure=True)
     return response, 200
+
+@app.route('/api/assignments', methods=['POST'])
+@token_required
+@requires_teacher_role
+def create_assignment(current_user):
+    data = request.get_json()
+    
+    # Validate required fields
+    required_fields = ['title', 'description', 'due_date', 'max_score', 'unit_id']
+    if not all(field in data for field in required_fields):
+        return jsonify({'error': 'Missing required fields'}), 400
+    
+    # Verify the unit belongs to the teacher
+    unit = Unit.query.get(data['unit_id'])
+    if not unit or unit.teacher_id != current_user.id:
+        return jsonify({'error': 'Unit not found or unauthorized'}), 403
+    
+    # Create new assignment
+    try:
+        # Validate and parse the due date
+        try:
+            due_date_str = data['due_date']
+            # Handle the case where the date might come with 'T' separator
+            due_date_str = due_date_str.replace('T', ' ')
+            # Remove timezone info if present
+            if '+' in due_date_str:
+                due_date_str = due_date_str.split('+')[0]
+            if 'Z' in due_date_str:
+                due_date_str = due_date_str.replace('Z', '')
+            # Parse the date
+            due_date = datetime.strptime(due_date_str, '%Y-%m-%d %H:%M')
+        except ValueError as e:
+            return jsonify({'error': f'Invalid date format: {str(e)}'}), 400
+
+        # Validate max_score
+        try:
+            max_score = float(data['max_score'])
+            if max_score < 0:
+                return jsonify({'error': 'Max score cannot be negative'}), 400
+        except ValueError:
+            return jsonify({'error': 'Invalid max score format'}), 400
+
+        new_assignment = Assignment(
+            title=data['title'],
+            description=data['description'],
+            due_date=due_date,
+            max_score=max_score,
+            unit_id=data['unit_id']
+        )
+        db.session.add(new_assignment)
+        db.session.commit()
+        return jsonify({'message': 'Assignment created successfully'}), 201
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'Error creating assignment: {str(e)}')
+        return jsonify({'error': f'Failed to create assignment: {str(e)}'}), 500
 
 @app.route('/api/register', methods=['POST', 'OPTIONS'])
 def register():
@@ -935,6 +991,50 @@ def create_unit(current_user):
     }), 201
 
 
+
+@app.route('/api/teacher/units/<int:unit_id>/students')
+@token_required
+@requires_teacher_role
+def get_unit_students(current_user, unit_id):
+    unit = Unit.query.filter_by(id=unit_id, teacher_id=current_user.id).first()
+    if not unit:
+        return jsonify({'error': 'Unit not found'}), 404
+    
+    students = db.session.query(
+        User.id.label('student_id'),
+        User.username.label('full_name'),
+        Unit.title.label('unit_title'),
+        Enrollment.assignment_score,
+        Enrollment.cat_score,
+        Enrollment.exam_score
+    ).join(Enrollment, User.id == Enrollment.student_id
+    ).join(Unit, Enrollment.unit_id == Unit.id
+    ).filter(Enrollment.unit_id == unit_id
+    ).all()
+    
+    return jsonify([dict(row) for row in students])
+
+@app.route('/api/teacher/students/<int:student_id>/grades', methods=['PUT'])
+@token_required
+@requires_teacher_role
+def update_student_grades(current_user, student_id):
+    data = request.get_json()
+    unit_id = data.get('unit_id')
+    
+    enrollment = Enrollment.query.filter_by(
+        student_id=student_id,
+        unit_id=unit_id
+    ).first()
+    
+    if not enrollment or enrollment.unit.teacher_id != current_user.id:
+        return jsonify({'error': 'Enrollment not found'}), 404
+    
+    enrollment.assignment_score = data.get('assignment_score', enrollment.assignment_score)
+    enrollment.cat_score = data.get('cat_score', enrollment.cat_score)
+    enrollment.exam_score = data.get('exam_score', enrollment.exam_score)
+    db.session.commit()
+    
+    return jsonify({'message': 'Grades updated successfully'})
 
 @app.route('/api/teacher/units', methods=['GET'])
 @token_required
