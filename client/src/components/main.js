@@ -33,6 +33,7 @@ import PopularUnits from './popularunits';
 import FeatuedTeachers from './featuredteachers';
 import CategoryUnits from './unitscategory';
 import AddAssignment from './Teacher/AddAssignment';
+import MyMoodle from './User/MyMoodle';
 
 
 function Main() {
@@ -76,6 +77,7 @@ function Main() {
         <Route path="/popular-units" element={< PopularUnits/>}/>
         <Route path="/featured-teachers" element={< FeatuedTeachers/>}/>
         <Route path="/category/Introduction" element={< CategoryUnits/>}/>
+        <Route path="/my-assignment" element={<MyMoodle />}/>
 
 
 

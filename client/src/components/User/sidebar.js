@@ -9,7 +9,7 @@ function Sidebar(){
                 <Link to='/recommended-units' className='list-group-item list-group-item-action'>Recommended Units </Link>
                 <Link to='/favourite-units' className='list-group-item list-group-item-action'>Favourite Units </Link>
                 <Link to='/my-results' className='list-group-item list-group-item-action'>My Results </Link>
-                <Link to='/my-moodle' className='list-group-item list-group-item-action'>My Moodle </Link>
+                <Link to='/my-assignment' className='list-group-item list-group-item-action'>My Assignment </Link>
                 <Link to='/my-performance' className='list-group-item list-group-item-action'>My Performance Trend </Link>
                 <Link to='/profile-setting' className='list-group-item list-group-item-action'>Profile Settings </Link>
                 <Link to='/change-password' className='list-group-item list-group-item-action text-dark'>Change Password </Link>

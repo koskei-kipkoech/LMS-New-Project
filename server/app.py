@@ -19,7 +19,10 @@ CORS(app, resources={
     r"/*": {
         "origins": "*",
         "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        "allow_headers": ["Authorization", "Content-Type"]
+        "allow_headers": ["Authorization", "Content-Type"],
+        "expose_headers": ["Content-Type"],
+        "supports_credentials": True,
+        "max_age": 600
     }
 })
 
@@ -95,14 +98,14 @@ def token_required(f):
             current_user = User.query.get(int(payload['sub']))
             if not current_user:
                 return jsonify({'message': 'User not found'}), 404
+            return f(current_user, *args, **kwargs)
         except jwt.ExpiredSignatureError:
             return jsonify({'message': 'Token has expired'}), 401
         except jwt.InvalidTokenError:
             return jsonify({'message': 'Invalid token'}), 401
-
-        return f(current_user, *args, **kwargs)
-
     return decorated
+
+
 
 
 @app.route('/')
@@ -198,6 +201,127 @@ def create_assignment(current_user):
     required_fields = ['title', 'description', 'due_date', 'max_score', 'unit_id']
     if not all(field in data for field in required_fields):
         return jsonify({'error': 'Missing required fields'}), 400
+
+@app.route('/api/student/<int:student_id>/units', methods=['GET', 'OPTIONS'])
+def get_student_units(student_id):
+    if request.method == 'OPTIONS':
+        response = jsonify({})
+        response.headers.add('Access-Control-Allow-Methods', 'GET')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        return response, 204
+
+    # Apply token_required decorator logic manually for non-OPTIONS requests
+    token = None
+    auth_header = request.headers.get('Authorization')
+
+    if not auth_header:
+        return jsonify({'message': 'Token is required'}), 401
+
+    try:
+        token = auth_header.split(" ")[1]
+    except IndexError:
+        return jsonify({'message': 'Token is missing'}), 401
+
+    if token in BLACKLIST:
+        return jsonify({'message': 'Token has been revoked'}), 401
+
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+        current_user = User.query.get(int(payload['sub']))
+        if not current_user:
+            return jsonify({'message': 'User not found'}), 404
+        
+        # Get enrolled units for the student
+        enrolled_units = Unit.query.join(Enrollment).filter(Enrollment.student_id == student_id).all()
+        units_data = [unit.to_dict() for unit in enrolled_units]
+        return jsonify(units_data)
+        if not current_user:
+            return jsonify({'message': 'User not found'}), 404
+    except jwt.ExpiredSignatureError:
+        return jsonify({'message': 'Token has expired'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'message': 'Invalid token'}), 401
+
+    if current_user.id != student_id or current_user.role != 'student':
+        return jsonify({'error': 'Unauthorized access'}), 403
+
+    if current_user.id != student_id or current_user.role != 'student':
+        return jsonify({'error': 'Unauthorized access'}), 403
+
+    try:
+        enrollments = Enrollment.query.filter_by(student_id=student_id).all()
+        units_data = [
+            {
+                'id': enrollment.unit.id,
+                'title': enrollment.unit.title,
+                'description': enrollment.unit.description,
+                'category': enrollment.unit.category,
+                'teacher': enrollment.unit.teacher.username,
+                'progress': enrollment.progress or 0
+            }
+            for enrollment in enrollments
+        ]
+        return jsonify(units_data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/student/units/<int:unit_id>/assignments', methods=['GET', 'OPTIONS'])
+def get_student_assignments(unit_id):
+    if request.method == 'OPTIONS':
+        response = jsonify({})
+        response.headers.add('Access-Control-Allow-Methods', 'GET')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        return response, 204
+
+    # Apply token_required decorator logic manually for non-OPTIONS requests
+    token = None
+    auth_header = request.headers.get('Authorization')
+
+    if not auth_header:
+        return jsonify({'message': 'Token is required'}), 401
+
+    try:
+        token = auth_header.split(" ")[1]
+    except IndexError:
+        return jsonify({'message': 'Token is missing'}), 401
+
+    if token in BLACKLIST:
+        return jsonify({'message': 'Token has been revoked'}), 401
+
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+        current_user = User.query.get(int(payload['sub']))
+        if not current_user:
+            return jsonify({'message': 'User not found'}), 404
+    except jwt.ExpiredSignatureError:
+        return jsonify({'message': 'Token has expired'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'message': 'Invalid token'}), 401
+
+    if current_user.role != 'student':
+        return jsonify({'error': 'Unauthorized access'}), 403
+
+    try:
+        # Check if the student is enrolled in the unit
+        enrollment = Enrollment.query.filter_by(student_id=current_user.id, unit_id=unit_id).first()
+        if not enrollment:
+            return jsonify({'error': 'You are not enrolled in this unit'}), 403
+
+        assignments = Assignment.query.filter_by(unit_id=unit_id).all()
+        assignments_data = [
+            {
+                'id': assignment.id,
+                'title': assignment.title,
+                'description': assignment.description,
+                'due_date': assignment.due_date.isoformat() if assignment.due_date else None,
+                'max_score': assignment.max_score,
+                'completed': enrollment.progress >= 100
+            }
+            for assignment in assignments
+        ]
+        return jsonify(assignments_data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
     
     # Verify the unit belongs to the teacher
     unit = Unit.query.get(data['unit_id'])
@@ -800,12 +924,6 @@ def get_student_dashboard(current_user, student_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/student/units/<int:student_id>')
-
-@token_required
-def get_student_units(current_user, student_id):
-    if current_user.id != student_id or current_user.role != 'student':
-        return jsonify({'error': 'Unauthorized access'}), 403
 
     try:
         enrollments = Enrollment.query.filter_by(student_id=student_id).all()
@@ -820,24 +938,7 @@ def get_student_units(current_user, student_id):
             }
             for enrollment in enrollments
         ]
-        return jsonify({'units': units_data})
-    except Exception as e:
-        return jsonify({'error': 'Failed to fetch student units'}), 422
-
-    try:
-        enrollments = Enrollment.query.filter_by(student_id=student_id).all()
-        units_data = [
-            {
-                'id': enrollment.unit.id,
-                'title': enrollment.unit.title,
-                'description': enrollment.unit.description,
-                'category': enrollment.unit.category,
-                'teacher': enrollment.unit.teacher.username,
-                'progress': enrollment.progress or 0
-            }
-            for enrollment in enrollments
-        ]
-        return jsonify({'units': units_data})
+        return jsonify(units_data)
     except Exception as e:
         return jsonify({'error': 'Failed to fetch student units'}), 422
 
@@ -913,21 +1014,34 @@ def update_unit_progress(current_user, student_id, unit_id):
     return jsonify({'message': 'Progress updated successfully', 'progress': progress}), 200
 
 
-@app.route('/api/student/units/<int:student_id>/<int:unit_id>', methods=['DELETE'])
+@app.route('/api/student-enrolled-units/<int:student_id>', methods=['GET'])
 @token_required
-def unenroll_from_unit(current_user, student_id, unit_id):
-    """Unenroll a student from a unit."""
+def get_student_enrolled_units(current_user, student_id):
     if current_user.id != student_id:
-        return jsonify({'error': 'Unauthorized access'}), 403
+        return jsonify({'message': 'Unauthorized access'}), 403
+
+    enrollments = Enrollment.query.filter_by(student_id=student_id).all()
+    units = []
+    for enrollment in enrollments:
+        unit = enrollment.unit.to_dict()
+        unit['progress'] = enrollment.progress
+        units.append(unit)
+
+    return jsonify({'units': units})
+
+@app.route('/api/student-enrolled-units/<int:student_id>/<int:unit_id>', methods=['DELETE'])
+@token_required
+def unenroll_student(current_user, student_id, unit_id):
+    if current_user.id != student_id:
+        return jsonify({'message': 'Unauthorized access'}), 403
 
     enrollment = Enrollment.query.filter_by(student_id=student_id, unit_id=unit_id).first()
     if not enrollment:
-        return jsonify({'error': 'Enrollment not found'}), 404
+        return jsonify({'message': 'Enrollment not found'}), 404
 
     db.session.delete(enrollment)
     db.session.commit()
-    
-    return jsonify({'message': 'Successfully unenrolled from the unit'}), 200
+    return jsonify({'message': 'Successfully unenrolled from the unit'})
 
 
 @app.route('/api/units/create', methods=['POST'])
