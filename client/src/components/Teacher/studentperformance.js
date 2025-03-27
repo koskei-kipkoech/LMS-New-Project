@@ -91,37 +91,65 @@ function StudentPerformance() {
                                     ))}
                                 </select>
                             </div>
+                        </div>
                         <div className='card-body'>
                             <table className='table table-bordered'>
                                 <thead>
                                     <tr>
-                                        <th>Studdent Name</th>
-                                        <th> Unit</th>
+                                        <th>Student Name</th>
+                                        <th>Unit</th>
                                         <th>Assignment /10</th>
                                         <th>CAT /20</th>
                                         <th>End Month Exams /70</th>
-                                        <th>Total in % </th>
+                                        <th>Total %</th>
                                         <th>Action</th>
 
                                     </tr>
                                 </thead>
-                                <tbody>
-                                    <td>Patrick kipkoech</td>
-                                    <td><Link to='/'>Introduction 1</Link></td>
-                                    <td>6</td>
-                                    <td>16</td>
-                                    <td>52</td>
-                                    <td>73</td>
-                                    <td><button className='btn btn-danger btn-sm danger active'>Delete</button></td>
-                                </tbody>
-                                <tbody>
-                                    <td>Patrick kipkoech</td>
-                                    <td><Link to='/'>Agriculture </Link></td>
-                                    <td>4</td>
-                                    <td>12</td>
-                                    <td>60</td>
-                                    <td>76</td>
-                                    <td><button className='btn btn-danger btn-sm danger active'>Delete</button></td>
+                                <tbody>{studentData.map(student => (
+                                        <tr key={student.student_id}>
+                                            <td>{student.full_name}</td>
+                                            <td><Link to={`/unit/${student.unit_id}`}>{student.unit_title}</Link></td>
+                                            <td>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    max="10"
+                                                    className='form-control form-control-sm'
+                                                    value={student.assignment_score || ''}
+                                                    onChange={(e) => handleGradeChange(student.student_id, 'assignment_score', e.target.value)}
+                                                />
+                                            </td>
+                                            <td>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    max="20"
+                                                    className='form-control form-control-sm'
+                                                    value={student.cat_score || ''}
+                                                    onChange={(e) => handleGradeChange(student.student_id, 'cat_score', e.target.value)}
+                                                />
+                                            </td>
+                                            <td>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    max="70"
+                                                    className='form-control form-control-sm'
+                                                    value={student.exam_score || ''}
+                                                    onChange={(e) => handleGradeChange(student.student_id, 'exam_score', e.target.value)}
+                                                />
+                                            </td>
+                                            <td>{(
+                                                ((student.assignment_score || 0) +
+                                                (student.cat_score || 0) +
+                                                (student.exam_score || 0)) / 100 * 100
+                                            ).toFixed(1)}%</td>
+                                            <td>
+                                                <button className='btn btn-danger btn-sm'>Delete</button>
+                                            </td>
+                                        </tr>
+                                    ))}
                                 </tbody>
                             </table>
                         </div>
