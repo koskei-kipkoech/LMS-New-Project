@@ -32,6 +32,7 @@ import AllUnits from './allunits';
 import PopularUnits from './popularunits';
 import FeatuedTeachers from './featuredteachers';
 import CategoryUnits from './unitscategory';
+import AddAssignment from './Teacher/AddAssignment';
 
 
 function Main() {
@@ -67,6 +68,8 @@ function Main() {
         <Route path="/teacher-register" element={<TeacherRegister/>}/>
         <Route path="/teacher-login" element={< TeacherLogin/>}/>
         <Route path="/add-units" element={< AddUnit/>}/>
+        <Route path="/add-assignment" element={< AddAssignment/>}/>
+
         <Route path="/my-users" element={< MyUsers/>}/>
         <Route path="/student-performance" element={< StudentPerformance/>}/>
         <Route path="/my-performance" element={< PerformanceTrend/>}/>

@@ -28,7 +28,7 @@ function TeacherDashboard() {
     }, []);
 
     return (
-        <div className='container mt-4'>
+        <div className='container mt-4' id='dash'>
             <div className='row'>
                 <aside className="col-md-2">
                     <TeacherSidebar />
