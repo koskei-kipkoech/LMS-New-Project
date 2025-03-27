@@ -10,7 +10,7 @@ from flask_cors import cross_origin
 from functools import wraps
 from database import db, init_db
 from sqlalchemy import func
-from models import User, Unit, Enrollment, Rating, ProfileSettings, Assignment
+from models import User, Unit, Enrollment, Rating, ProfileSettings, Assignment, Submission
 
 
 # Initialize Flask app
@@ -1334,6 +1334,87 @@ def change_password(user_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/submissions', methods=['POST'])
+@token_required
+def create_submission(current_user):
+    try:
+        # Ensure upload folder exists
+        UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads', 'submissions')
+        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+        # Check if request contains form data
+        data = request.form.to_dict()
+
+        # Validate required fields
+        assignment_id = data.get('assignment_id')
+        if not assignment_id:
+            return jsonify({'error': 'Assignment ID is required'}), 400
+
+        # Verify assignment exists
+        assignment = Assignment.query.get(int(assignment_id))
+        if not assignment:
+            return jsonify({'error': 'Assignment not found'}), 404
+
+        # Check if student is enrolled in the unit
+        enrollment = Enrollment.query.filter_by(
+            student_id=current_user.id, 
+            unit_id=assignment.unit_id
+        ).first()
+        
+        if not enrollment:
+            return jsonify({'error': 'You are not enrolled in this unit'}), 403
+
+        # Prepare submission details
+        submission_text = data.get('submission_text', '')
+        submission_link = data.get('submission_link', '')
+        document_url = None
+
+        # Handle file upload if present
+        if 'document' in request.files:
+            file = request.files['document']
+            if file and file.filename:
+                # Generate unique filename
+                filename = secure_filename(f"{current_user.id}_{assignment_id}_{file.filename}")
+                file_path = os.path.join(UPLOAD_FOLDER, filename)
+                
+                # Save file
+                file.save(file_path)
+                document_url = f"/uploads/submissions/{filename}"
+
+        # Validate submission type
+        if not (submission_text or document_url or submission_link):
+            return jsonify({'error': 'Please provide a submission (text, file, or link)'}), 400
+
+        # Create new submission
+        new_submission = Submission(
+            assignment_id=int(assignment_id),
+            student_id=current_user.id,
+            submission_text=submission_text,
+            document_url=document_url,
+            submission_link=submission_link,  # Add this to your Submission model
+            submitted_at=datetime.utcnow(),
+            grade=None,
+            feedback=None
+        )
+
+        # Add to database
+        db.session.add(new_submission)
+        db.session.commit()
+
+        return jsonify({
+            'message': 'Submission created successfully',
+            'submission_id': new_submission.id,
+            'assignment_id': assignment_id
+        }), 201
+
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Submission error: {str(e)}")
+        return jsonify({
+            'error': 'An unexpected error occurred',
+            'details': str(e)
+        }), 500
 
 if __name__ == '__main__':
     app.run(port=5000, debug=True)
