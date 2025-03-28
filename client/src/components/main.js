@@ -19,7 +19,7 @@ import ProfileSetting from './User/profilesetting';
 import TeacherProfileSetting from './Teacher/teprofilesetting';
 
 import ChangePassword from './User/changepassword';
-import TeacherChangePassword from './Teacher/techangepassword';
+import TeChangePassword from './Teacher/techangepassword';
 import AddUnit from './Teacher/Addunits';
 import MyUsers from './Teacher/myusers';
 import StudentPerformance from './Teacher/studentperformance';
@@ -65,7 +65,7 @@ function Main() {
         <Route path="/my-results" element={<MyResults/>}/>
 
         <Route path="/change-password" element={<ChangePassword/>}/>
-        <Route path="/te-change-password" element={<TeacherChangePassword/>}/>
+        <Route path="/te-change-password" element={<TeChangePassword/>}/>
 
         <Route path="/teacher-register" element={<TeacherRegister/>}/>
         <Route path="/teacher-login" element={< TeacherLogin/>}/>
