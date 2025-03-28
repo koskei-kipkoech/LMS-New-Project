@@ -7,15 +7,17 @@ function ChangePassword() {
         currentPassword: '',
         newPassword: '',
         confirmPassword: '',
-        email: ''
+        email: '',
+        userType: '' // New field to distinguish user type
     });
     const [message, setMessage] = useState({ type: '', text: '' });
 
     useEffect(() => {
-        // Fetch user email from session
         const fetchUserEmail = async () => {
             try {
                 const userId = localStorage.getItem('user_id');
+                const userType = localStorage.getItem('user_type'); // Assuming you store user type in localStorage
+                
                 const response = await axios.get(
                     `http://localhost:5000/api/users/${userId}`,
                     {
@@ -24,9 +26,11 @@ function ChangePassword() {
                         }
                     }
                 );
+                
                 setPasswordData(prev => ({
                     ...prev,
-                    email: response.data.email
+                    email: response.data.email,
+                    userType: userType || 'user' // Default to 'user' if not specified
                 }));
             } catch (error) {
                 console.error('Error fetching user email:', error);
@@ -60,12 +64,19 @@ function ChangePassword() {
 
         try {
             const userId = localStorage.getItem('user_id');
+            
+            // Determine the appropriate endpoint based on user type
+            const endpoint = passwordData.userType === 'teacher' 
+                ? `http://localhost:5000/api/teacher-change-password/${userId}`
+                : `http://localhost:5000/api/change-password/${userId}`;
+
             const response = await axios.patch(
-                `http://localhost:5000/api/change-password/${userId}`,
+                endpoint,
                 {
                     current_password: passwordData.currentPassword,
                     new_password: passwordData.newPassword,
-                    email: passwordData.email
+                    email: passwordData.email,
+                    user_type: passwordData.userType // Pass user type to backend
                 },
                 {
                     headers: {
