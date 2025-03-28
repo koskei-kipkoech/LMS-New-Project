@@ -34,6 +34,7 @@ import FeatuedTeachers from './featuredteachers';
 import CategoryUnits from './unitscategory';
 import AddAssignment from './Teacher/AddAssignment';
 import MyMoodle from './User/MyMoodle';
+import TeacherSubmissions from './Teacher/TeacherSubmissions';
 
 
 function Main() {
@@ -78,7 +79,7 @@ function Main() {
         <Route path="/featured-teachers" element={< FeatuedTeachers/>}/>
         <Route path="/category/Introduction" element={< CategoryUnits/>}/>
         <Route path="/my-assignment" element={<MyMoodle />}/>
-
+        <Route path="/assignment-submited" element={< TeacherSubmissions/>}/>
 
 
       </Switch>
