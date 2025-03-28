@@ -8,6 +8,8 @@ function StudentPerformance() {
     const [selectedUnit, setSelectedUnit] = useState('');
     const [studentData, setStudentData] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [updatingGrades, setUpdatingGrades] = useState({});
 
     useEffect(() => {
         const fetchUnits = async () => {
@@ -47,9 +49,25 @@ function StudentPerformance() {
     }, [selectedUnit]);
 
     const handleGradeChange = async (studentId, field, value) => {
+        // Validate input value
+        const numValue = parseFloat(value);
+        const maxValues = {
+            assignment_score: 10,
+            cat_score: 20,
+            exam_score: 70
+        };
+
+        if (isNaN(numValue) || numValue < 0 || numValue > maxValues[field]) {
+            setError(`Invalid ${field.replace('_', ' ')}. Must be between 0 and ${maxValues[field]}.`);
+            return;
+        }
+
+        setError(null);
+        setUpdatingGrades(prev => ({ ...prev, [studentId]: true }));
+
         const updatedData = studentData.map(student => {
             if (student.student_id === studentId) {
-                return { ...student, [field]: value };
+                return { ...student, [field]: numValue };
             }
             return student;
         });
@@ -58,14 +76,23 @@ function StudentPerformance() {
         try {
             await axios.put(`http://localhost:5000/api/teacher/students/${studentId}/grades`, {
                 unit_id: selectedUnit,
-                [field]: value
+                [field]: numValue
             }, {
                 headers: {
                     Authorization: `Bearer ${localStorage.getItem('token')}`
                 }
             });
         } catch (error) {
-            console.error('Error updating grades:', error);
+            setError('Failed to update grade. Please try again.');
+            // Revert the changes in UI
+            setStudentData(prevData => prevData.map(student => {
+                if (student.student_id === studentId) {
+                    return { ...student, [field]: student[field] };
+                }
+                return student;
+            }));
+        } finally {
+            setUpdatingGrades(prev => ({ ...prev, [studentId]: false }));
         }
     };
 
@@ -118,6 +145,7 @@ function StudentPerformance() {
                                                     className='form-control form-control-sm'
                                                     value={student.assignment_score || ''}
                                                     onChange={(e) => handleGradeChange(student.student_id, 'assignment_score', e.target.value)}
+                                                    disabled={updatingGrades[student.student_id]}
                                                 />
                                             </td>
                                             <td>
@@ -128,6 +156,7 @@ function StudentPerformance() {
                                                     className='form-control form-control-sm'
                                                     value={student.cat_score || ''}
                                                     onChange={(e) => handleGradeChange(student.student_id, 'cat_score', e.target.value)}
+                                                    disabled={updatingGrades[student.student_id]}
                                                 />
                                             </td>
                                             <td>
@@ -138,6 +167,7 @@ function StudentPerformance() {
                                                     className='form-control form-control-sm'
                                                     value={student.exam_score || ''}
                                                     onChange={(e) => handleGradeChange(student.student_id, 'exam_score', e.target.value)}
+                                                    disabled={updatingGrades[student.student_id]}
                                                 />
                                             </td>
                                             <td>{(

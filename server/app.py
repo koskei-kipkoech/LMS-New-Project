@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, make_response
 from flask_cors import CORS
 from flask_migrate import Migrate
 from flask_restful import Api
@@ -10,7 +10,7 @@ from flask_cors import cross_origin
 from functools import wraps
 from database import db, init_db
 from sqlalchemy import func
-from models import User, Unit, Enrollment, Rating, ProfileSettings, Assignment
+from models import User, Unit, Enrollment, Rating, ProfileSettings, Assignment, Submission
 
 
 # Initialize Flask app
@@ -398,6 +398,53 @@ def register():
     })
     response.set_cookie('token', token, httponly=True, secure=True)
     return response, 201
+
+@app.route('/api/teachers/<int:teacher_id>', methods=['GET', 'OPTIONS'])
+@token_required
+def get_teacher(current_user, teacher_id):
+    if request.method == 'OPTIONS':
+        return '', 204
+
+    if current_user.id != teacher_id or current_user.role != 'teacher':
+        return jsonify({'error': 'Unauthorized access'}), 403
+
+    teacher = User.query.filter_by(id=teacher_id, role='teacher').first()
+    if not teacher:
+        return jsonify({'error': 'Teacher not found'}), 404
+
+    return jsonify({'email': teacher.email})
+
+@app.route('/api/teacher-change-password/<int:teacher_id>', methods=['PATCH', 'OPTIONS'])
+@token_required
+def update_teacher_password_endpoint_endpoint(current_user, teacher_id):
+    if request.method == 'OPTIONS':
+        response = make_response()
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'PATCH,OPTIONS')
+        return response
+
+    if current_user.id != teacher_id or current_user.role != 'teacher':
+        return jsonify({'error': 'Unauthorized access'}), 403
+
+    data = request.get_json()
+    if not data or not data.get('current_password') or not data.get('new_password'):
+        return jsonify({'error': 'Missing required fields'}), 400
+
+    teacher = User.query.filter_by(id=teacher_id, role='teacher').first()
+    if not teacher:
+        return jsonify({'error': 'Teacher not found'}), 404
+
+    if not teacher.check_password(data['current_password']):
+        return jsonify({'error': 'Current password is incorrect'}), 401
+
+    if len(data['new_password']) < 6:
+        return jsonify({'error': 'Password must be at least 6 characters long'}), 400
+
+    teacher.set_password(data['new_password'])
+    db.session.commit()
+
+    return jsonify({'message': 'Password updated successfully'})
 
 @app.route('/api/teacher/register', methods=['POST', 'OPTIONS'])
 def teacher_register():
@@ -1126,7 +1173,7 @@ def get_unit_students(current_user, unit_id):
     ).filter(Enrollment.unit_id == unit_id
     ).all()
     
-    return jsonify([dict(row) for row in students])
+    return jsonify([row._asdict() for row in students])
 
 @app.route('/api/teacher/students/<int:student_id>/grades', methods=['PUT'])
 @token_required
@@ -1274,13 +1321,15 @@ def user_profile(current_user, user_id):
             return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/change-password/<int:user_id>', methods=['PATCH', 'OPTIONS'])
-def change_password(user_id):
+@app.route('/api/teacher-change-password/<int:teacher_id>', methods=['PATCH', 'OPTIONS'])
+@token_required
+def update_teacher_endpoint_password_endpoint(current_user, teacher_id):
     if request.method == 'OPTIONS':
-        response = jsonify({})
-        response.headers.add('Access-Control-Allow-Methods', 'PATCH')
+        response = make_response()
+        response.headers.add('Access-Control-Allow-Origin', '*')
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-        return response, 204
+        response.headers.add('Access-Control-Allow-Methods', 'PATCH,OPTIONS')
+        return response
     
     # Apply token_required decorator logic manually for non-OPTIONS requests
     token = None
@@ -1334,6 +1383,166 @@ def change_password(user_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/teacher/<int:teacher_id>/units', methods=['GET'])
+@token_required
+def get_specific_teacher_units(current_user, teacher_id):
+    if current_user.id != teacher_id or current_user.role != 'teacher':
+        return jsonify({'error': 'Unauthorized access'}), 403
+
+    units = Unit.query.filter_by(teacher_id=teacher_id).all()
+    return jsonify([unit.to_dict() for unit in units])
+
+@app.route('/api/teacher/units/<int:unit_id>/submissions', methods=['GET'])
+@token_required
+def get_unit_submissions(current_user, unit_id):
+    # Verify the teacher owns this unit
+    unit = Unit.query.get_or_404(unit_id)
+    if current_user.id != unit.teacher_id or current_user.role != 'teacher':
+        return jsonify({'error': 'Unauthorized access'}), 403
+
+    # Get all assignments for this unit
+    assignments = Assignment.query.filter_by(unit_id=unit_id).all()
+    assignment_ids = [assignment.id for assignment in assignments]
+
+    # Get all submissions for these assignments
+    submissions = Submission.query.filter(Submission.assignment_id.in_(assignment_ids)).all()
+
+    # Format submissions with student and assignment details
+    formatted_submissions = []
+    for submission in submissions:
+        student = User.query.get(submission.student_id)
+        assignment = Assignment.query.get(submission.assignment_id)
+        formatted_submissions.append({
+            'id': submission.id,
+            'student_id': student.id,
+            'student_name': student.username,
+            'assignment_id': assignment.id,
+            'assignment_title': assignment.title,
+            'submission_text': submission.submission_text,
+            'document_url': submission.document_url,
+            'submission_link': submission.submission_link,
+            'submitted_at': submission.submitted_at.isoformat(),
+            'grade': submission.grade,
+            'feedback': submission.feedback
+        })
+
+    return jsonify(formatted_submissions)
+
+@app.route('/api/submissions/<int:submission_id>/grade', methods=['POST'])
+@token_required
+def grade_submission(current_user, submission_id):
+    # Get the submission
+    submission = Submission.query.get_or_404(submission_id)
+    
+    # Get the assignment and unit to verify teacher's authority
+    assignment = Assignment.query.get(submission.assignment_id)
+    unit = Unit.query.get(assignment.unit_id)
+    
+    # Verify the current user is the teacher of this unit
+    if current_user.id != unit.teacher_id or current_user.role != 'teacher':
+        return jsonify({'error': 'Unauthorized access'}), 403
+
+    # Get grade and feedback from request
+    data = request.get_json()
+    grade = data.get('grade')
+    feedback = data.get('feedback')
+
+    if grade is None:
+        return jsonify({'error': 'Grade is required'}), 400
+
+    # Update submission
+    submission.grade = grade
+    submission.feedback = feedback
+    db.session.commit()
+
+    return jsonify({
+        'message': 'Submission graded successfully',
+        'submission_id': submission.id,
+        'grade': grade,
+        'feedback': feedback
+    })
+
+@app.route('/api/submissions', methods=['POST'])
+@token_required
+def create_submission(current_user):
+    try:
+        # Ensure upload folder exists
+        UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads', 'submissions')
+        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+        # Check if request contains form data
+        data = request.form.to_dict()
+
+        # Validate required fields
+        assignment_id = data.get('assignment_id')
+        if not assignment_id:
+            return jsonify({'error': 'Assignment ID is required'}), 400
+
+        # Verify assignment exists
+        assignment = Assignment.query.get(int(assignment_id))
+        if not assignment:
+            return jsonify({'error': 'Assignment not found'}), 404
+
+        # Check if student is enrolled in the unit
+        enrollment = Enrollment.query.filter_by(
+            student_id=current_user.id, 
+            unit_id=assignment.unit_id
+        ).first()
+        
+        if not enrollment:
+            return jsonify({'error': 'You are not enrolled in this unit'}), 403
+
+        # Prepare submission details
+        submission_text = data.get('submission_text', '')
+        submission_link = data.get('submission_link', '')
+        document_url = None
+
+        # Handle file upload if present
+        if 'document' in request.files:
+            file = request.files['document']
+            if file and file.filename:
+                # Generate unique filename
+                filename = secure_filename(f"{current_user.id}_{assignment_id}_{file.filename}")
+                file_path = os.path.join(UPLOAD_FOLDER, filename)
+                
+                # Save file
+                file.save(file_path)
+                document_url = f"/uploads/submissions/{filename}"
+
+        # Validate submission type
+        if not (submission_text or document_url or submission_link):
+            return jsonify({'error': 'Please provide a submission (text, file, or link)'}), 400
+
+        # Create new submission
+        new_submission = Submission(
+            assignment_id=int(assignment_id),
+            student_id=current_user.id,
+            submission_text=submission_text,
+            document_url=document_url,
+            submission_link=submission_link,  # Add this to your Submission model
+            submitted_at=datetime.utcnow(),
+            grade=None,
+            feedback=None
+        )
+
+        # Add to database
+        db.session.add(new_submission)
+        db.session.commit()
+
+        return jsonify({
+            'message': 'Submission created successfully',
+            'submission_id': new_submission.id,
+            'assignment_id': assignment_id
+        }), 201
+
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Submission error: {str(e)}")
+        return jsonify({
+            'error': 'An unexpected error occurred',
+            'details': str(e)
+        }), 500
 
 if __name__ == '__main__':
     app.run(port=5000, debug=True)

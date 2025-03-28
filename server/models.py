@@ -108,6 +108,9 @@ class Enrollment(db.Model):
     grade = db.Column(db.Float)
     feedback = db.Column(db.Text)
     progress = db.Column(db.Integer, default=0)
+    assignment_score = db.Column(db.Float)
+    cat_score = db.Column(db.Float)
+    exam_score = db.Column(db.Float)
 
     def __repr__(self):
         return f'<Enrollment {self.student_id}-{self.unit_id}>'
@@ -150,6 +153,22 @@ class Assignment(db.Model):
     description = db.Column(db.Text)
     due_date = db.Column(db.DateTime)
     max_score = db.Column(db.Float)
+    submissions = db.relationship('Submission', backref='assignment', lazy=True)
+
 
     def __repr__(self):
         return f'<Assignment {self.title}>'
+
+class Submission(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    assignment_id = db.Column(db.Integer, db.ForeignKey('assignment.id'), nullable=False)
+    student_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    submission_text = db.Column(db.Text, nullable=True)  # Optional text explanation
+    document_url = db.Column(db.String(255), nullable=True)  # URL to the submitted document
+    submission_link = db.Column(db.String(255), nullable=True)  # URL to external document
+    submitted_at = db.Column(db.DateTime, default=datetime.utcnow)
+    grade = db.Column(db.Float)  # Grade can be updated later
+    feedback = db.Column(db.Text)
+
+    def __repr__(self):
+        return f'<Submission {self.id} for Assignment {self.assignment_id}>'
