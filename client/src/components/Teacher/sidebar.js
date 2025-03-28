@@ -9,6 +9,7 @@ function TeacherSidebar(){
                 <Link to='/my-users' className='list-group-item list-group-item-action'>My Users</Link>
                 <Link to='/add-units' className='list-group-item list-group-item-action'>Add Units </Link>
                 <Link to='/add-assignment' className='list-group-item list-group-item-action'>Add Assignment</Link>
+                <Link to='/assignment-submited' className='list-group-item list-group-item-action'>Assignment Submited</Link>
                 <Link to='/student-performance' className='list-group-item list-group-item-action'>Student Performance </Link>
                 <Link to='/te-profile-setting' className='list-group-item list-group-item-action'>Profile Setting </Link>
                 <Link to='/te-change-password' className='list-group-item list-group-item-action text-dark'>Change Password </Link>
