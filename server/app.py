@@ -414,37 +414,7 @@ def get_teacher(current_user, teacher_id):
 
     return jsonify({'email': teacher.email})
 
-@app.route('/api/teacher-change-password/<int:teacher_id>', methods=['PATCH', 'OPTIONS'])
-@token_required
-def update_teacher_password_endpoint_endpoint(current_user, teacher_id):
-    if request.method == 'OPTIONS':
-        response = make_response()
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-        response.headers.add('Access-Control-Allow-Methods', 'PATCH,OPTIONS')
-        return response
 
-    if current_user.id != teacher_id or current_user.role != 'teacher':
-        return jsonify({'error': 'Unauthorized access'}), 403
-
-    data = request.get_json()
-    if not data or not data.get('current_password') or not data.get('new_password'):
-        return jsonify({'error': 'Missing required fields'}), 400
-
-    teacher = User.query.filter_by(id=teacher_id, role='teacher').first()
-    if not teacher:
-        return jsonify({'error': 'Teacher not found'}), 404
-
-    if not teacher.check_password(data['current_password']):
-        return jsonify({'error': 'Current password is incorrect'}), 401
-
-    if len(data['new_password']) < 6:
-        return jsonify({'error': 'Password must be at least 6 characters long'}), 400
-
-    teacher.set_password(data['new_password'])
-    db.session.commit()
-
-    return jsonify({'message': 'Password updated successfully'})
 
 @app.route('/api/teacher/register', methods=['POST', 'OPTIONS'])
 def teacher_register():
@@ -1320,42 +1290,20 @@ def user_profile(current_user, user_id):
             db.session.rollback()
             return jsonify({'error': str(e)}), 500
 
-
-@app.route('/api/teacher-change-password/<int:teacher_id>', methods=['PATCH', 'OPTIONS'])
+@app.route('/api/change-password/<int:user_id>', methods=['PATCH', 'OPTIONS'])
+@cross_origin()
 @token_required
-def update_teacher_endpoint_password_endpoint(current_user, teacher_id):
+def update_password_endpoint(current_user, user_id):
+    # If it's an OPTIONS request, immediately return a successful CORS response
     if request.method == 'OPTIONS':
         response = make_response()
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-        response.headers.add('Access-Control-Allow-Methods', 'PATCH,OPTIONS')
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'PATCH, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        response.status_code = 200
         return response
-    
-    # Apply token_required decorator logic manually for non-OPTIONS requests
-    token = None
-    auth_header = request.headers.get('Authorization')
 
-    if not auth_header:
-        return jsonify({'message': 'Token is required'}), 401
-
-    try:
-        token = auth_header.split(" ")[1]
-    except IndexError:
-        return jsonify({'message': 'Token is missing'}), 401
-
-    if token in BLACKLIST:
-        return jsonify({'message': 'Token has been revoked'}), 401
-
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
-        current_user = User.query.get(int(payload['sub']))
-        if not current_user:
-            return jsonify({'message': 'User not found'}), 404
-    except jwt.ExpiredSignatureError:
-        return jsonify({'message': 'Token has expired'}), 401
-    except jwt.InvalidTokenError:
-        return jsonify({'message': 'Invalid token'}), 401
-
+    # Verify the user making the request matches the user ID in the URL
     if current_user.id != user_id:
         return jsonify({'error': 'Unauthorized access'}), 403
 
@@ -1363,26 +1311,36 @@ def update_teacher_endpoint_password_endpoint(current_user, teacher_id):
     current_password = data.get('current_password')
     new_password = data.get('new_password')
     email = data.get('email')
+    user_type = data.get('user_type')  # Added to match frontend
 
-    if not current_password or not new_password or not email:
-        return jsonify({'error': 'Current password, new password and email are required'}), 400
+    # Validate input
+    if not all([current_password, new_password, email]):
+        return jsonify({'error': 'Current password, new password, and email are required'}), 400
 
+    # Verify email matches current user
     if email != current_user.email:
         return jsonify({'error': 'Email verification failed. Please ensure you are using the correct account.'}), 401
 
+    # Check current password
     if not current_user.check_password(current_password):
         return jsonify({'error': 'Current password is incorrect'}), 401
 
+    # Validate new password
     if len(new_password) < 6:
         return jsonify({'error': 'Password must be at least 6 characters long'}), 400
 
     try:
+        # Update password
         current_user.set_password(new_password)
         db.session.commit()
-        return jsonify({'message': 'Password updated successfully'})
+        return jsonify({
+            'message': 'Password updated successfully', 
+            'user_type': user_type
+        }), 200
+
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'An error occurred while updating the password'}), 500
 
 @app.route('/api/teacher/<int:teacher_id>/units', methods=['GET'])
 @token_required
