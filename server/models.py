@@ -108,6 +108,9 @@ class Enrollment(db.Model):
     grade = db.Column(db.Float)
     feedback = db.Column(db.Text)
     progress = db.Column(db.Integer, default=0)
+    assignment_score = db.Column(db.Float)
+    cat_score = db.Column(db.Float)
+    exam_score = db.Column(db.Float)
 
     def __repr__(self):
         return f'<Enrollment {self.student_id}-{self.unit_id}>'
