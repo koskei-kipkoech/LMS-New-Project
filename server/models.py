@@ -119,7 +119,10 @@ class Performance(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     unit_id = db.Column(db.Integer, db.ForeignKey('unit.id'), nullable=False)
-    score = db.Column(db.Float)
+    score = db.Column(db.Float)    
+    trend_data = db.Column(db.JSON)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     date_recorded = db.Column(db.DateTime, default=datetime.utcnow)
     trend_data = db.Column(db.JSON)
 
