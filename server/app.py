@@ -1502,5 +1502,148 @@ def create_submission(current_user):
             'details': str(e)
         }), 500
 
+
+@app.route('/api/student/performance/<int:student_id>', methods=['GET'])
+@token_required
+def get_student_performance(current_user, student_id):
+    # Ensure the logged-in user is viewing their own performance and is a student
+    if current_user.id != student_id or current_user.role != 'student':
+        return jsonify({'error': 'Unauthorized access'}), 403
+
+    try:
+        # Fetch all enrollments for the student
+        enrollments = Enrollment.query.filter_by(student_id=student_id).all()
+
+        # Prepare a dictionary to store performance data
+        performance_data = {
+            'cat_results': [],
+            'overall_performance': [],
+            'performance_trend': []
+        }
+
+        # Loop through each enrollment to collect data per unit
+        for enrollment in enrollments:
+            unit = enrollment.unit
+
+            # Collect CAT (Continuous Assessment Test) results (exam results)
+            cat_result = {
+                'unit_id': unit.id,
+                'unit_title': unit.title,
+                'cat_score': enrollment.cat_score,
+                'max_cat_score': 100  # Assuming the maximum CAT score is 100
+            }
+            performance_data['cat_results'].append(cat_result)
+
+            # Collect overall performance for the unit
+            performance = Performance.query.filter_by(
+                user_id=student_id, 
+                unit_id=unit.id
+            ).first()
+            if performance:
+                overall_result = {
+                    'unit_id': unit.id,
+                    'unit_title': unit.title,
+                    'score': performance.score,
+                    'trend_data': performance.trend_data
+                }
+                performance_data['overall_performance'].append(overall_result)
+                # If trend_data is provided (expected as a list), add it to the overall trend
+                if performance.trend_data:
+                    performance_data['performance_trend'].extend(performance.trend_data)
+
+        return jsonify(performance_data), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+
+@app.route('/api/student/submissions', methods=['GET'])
+@token_required
+def get_student_submissions(current_user):
+    # Only students can view their submissions
+    if current_user.role != 'student':
+        return jsonify({'error': 'Unauthorized access'}), 403
+
+    try:
+        # Query for all submissions made by the current student
+        submissions = Submission.query.filter_by(student_id=current_user.id).all()
+        results = []
+        for sub in submissions:
+            # Access assignment details via backref and then the corresponding unit via assignment's backref
+            assignment = sub.assignment  
+            unit = assignment.unit if assignment else None
+
+            results.append({
+                'submission_id': sub.id,
+                'assignment_id': assignment.id if assignment else None,
+                'assignment_title': assignment.title if assignment else 'N/A',
+                'unit_title': unit.title if unit else 'N/A',
+                'submission_text': sub.submission_text,
+                'document_url': sub.document_url,
+                'submission_link': sub.submission_link,
+                'submitted_at': sub.submitted_at.isoformat(),
+                'grade': sub.grade if sub.grade is not None else 'Not graded',
+                'feedback': sub.feedback or 'No feedback yet'
+            })
+        return jsonify(results), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/student/results/<int:student_id>', methods=['GET'])
+@token_required
+def get_student_results(current_user, student_id):
+    # Ensure that the logged-in user is accessing their own results and is a student.
+    if current_user.id != student_id or current_user.role != 'student':
+        return jsonify({'error': 'Unauthorized access'}), 403
+
+    try:
+        enrollments = Enrollment.query.filter_by(student_id=student_id).all()
+        results = []
+        trend_data = []
+
+        for enrollment in enrollments:
+            unit = enrollment.unit  # Using the backref to fetch the related Unit
+            # Calculate an overall score if any of the individual scores are available.
+            scores = []
+            if enrollment.assignment_score is not None:
+                scores.append(enrollment.assignment_score)
+            if enrollment.cat_score is not None:
+                scores.append(enrollment.cat_score)
+            if enrollment.exam_score is not None:
+                scores.append(enrollment.exam_score)
+            overall_score = round(sum(scores) / len(scores), 2) if scores else None
+
+            record = {
+                'unit_id': unit.id,
+                'unit_title': unit.title,
+                'grade': enrollment.grade,
+                'feedback': enrollment.feedback,
+                'progress': enrollment.progress,
+                'assignment_score': enrollment.assignment_score,
+                'cat_score': enrollment.cat_score,
+                'exam_score': enrollment.exam_score,
+                'overall_score': overall_score,
+                'enrollment_date': enrollment.enrollment_date.isoformat()
+            }
+            results.append(record)
+            trend_data.append({
+                'timestamp': enrollment.enrollment_date.isoformat(),
+                'overall_score': overall_score
+            })
+
+        # Sort the trend summary by enrollment date (timestamp)
+        trend_data = sorted(trend_data, key=lambda x: x['timestamp'])
+
+        return jsonify({
+            'results': results,
+            'trend_summary': trend_data
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+
 if __name__ == '__main__':
     app.run(port=5000, debug=True)
