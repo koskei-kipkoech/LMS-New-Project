@@ -1,8 +1,17 @@
 import { Link } from 'react-router-dom';
-import { useState } from 'react'; // Import useState
+import { useState } from 'react';
 
 function Header() {
-    const [isOpen, setIsOpen] = useState(false); // State to toggle mobile menu
+    const [isOpen, setIsOpen] = useState(false); // Mobile menu toggle
+    const [teacherDropdownOpen, setTeacherDropdownOpen] = useState(false); // Teacher dropdown toggle
+    const [userDropdownOpen, setUserDropdownOpen] = useState(false); // User dropdown toggle
+
+    // Function to close all dropdowns
+    const closeDropdowns = () => {
+        setTeacherDropdownOpen(false);
+        setUserDropdownOpen(false);
+        setIsOpen(false); // Also close mobile menu if open
+    };
 
     return (
         <nav className="bg-gray-800 text-white shadow-md sticky top-0 z-50 py-4">
@@ -16,7 +25,7 @@ function Header() {
                 <button
                     className="md:hidden text-white focus:outline-none"
                     type="button"
-                    onClick={() => setIsOpen(!isOpen)} // Toggle isOpen state
+                    onClick={() => setIsOpen(!isOpen)}
                     aria-label="Toggle navigation"
                 >
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -33,84 +42,134 @@ function Header() {
                 >
                     <ul className="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-6">
                         <li>
-                            <Link to="/" className="text-white hover:text-indigo-400 transition font-medium">
+                            <Link to="/" className="text-white hover:text-indigo-400 transition font-medium" onClick={closeDropdowns}>
                                 Home
                             </Link>
                         </li>
                         <li>
-                            <Link to="/about" className="text-white hover:text-indigo-400 transition font-medium">
+                            <Link to="/about" className="text-white hover:text-indigo-400 transition font-medium" onClick={closeDropdowns}>
                                 About Us
                             </Link>
                         </li>
                         <li>
-                            <Link to="/all-units" className="text-white hover:text-indigo-400 transition font-medium">
+                            <Link to="/all-units" className="text-white hover:text-indigo-400 transition font-medium" onClick={closeDropdowns}>
                                 Units
                             </Link>
                         </li>
                         {/* Teacher Dropdown */}
-                        <li className="relative group">
-                            <span className="text-white hover:text-indigo-400 transition font-medium cursor-pointer flex items-center">
+                        <li className="relative">
+                            <span
+                                className="text-white hover:text-indigo-400 transition font-medium cursor-pointer flex items-center"
+                                onClick={() => setTeacherDropdownOpen(!teacherDropdownOpen)}
+                            >
                                 Teacher
                                 <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
                                 </svg>
                             </span>
-                            <ul className="absolute hidden group-hover:block bg-gray-700 text-white rounded-lg shadow-lg mt-2 w-48">
+                            <ul
+                                className={`${
+                                    teacherDropdownOpen ? 'block' : 'hidden'
+                                } absolute bg-gray-700 text-white rounded-lg shadow-lg mt-2 w-48 z-50`}
+                            >
                                 <li>
-                                    <Link to="/teacher-login" className="block px-4 py-2 hover:bg-gray-600 transition">
+                                    <Link
+                                        to="/teacher-login"
+                                        className="block px-4 py-2 hover:bg-gray-600 transition"
+                                        onClick={closeDropdowns}
+                                    >
                                         Log In
                                     </Link>
                                 </li>
                                 <li>
-                                    <Link to="/teacher-register" className="block px-4 py-2 hover:bg-gray-600 transition">
+                                    <Link
+                                        to="/teacher-register"
+                                        className="block px-4 py-2 hover:bg-gray-600 transition"
+                                        onClick={closeDropdowns}
+                                    >
                                         Register
                                     </Link>
                                 </li>
-                                <li><hr className="border-gray-600" /></li>
                                 <li>
-                                    <Link to="/teacher-dashboard" className="block px-4 py-2 hover:bg-gray-600 transition">
+                                    <hr className="border-gray-600" />
+                                </li>
+                                <li>
+                                    <Link
+                                        to="/teacher-dashboard"
+                                        className="block px-4 py-2 hover:bg-gray-600 transition"
+                                        onClick={closeDropdowns}
+                                    >
                                         Dashboard
                                     </Link>
                                 </li>
                                 <li>
-                                    <Link to="/teacher-logout" className="block px-4 py-2 hover:bg-gray-600 transition">
+                                    <Link
+                                        to="/teacher-logout"
+                                        className="block px-4 py-2 hover:bg-gray-600 transition"
+                                        onClick={closeDropdowns}
+                                    >
                                         Log Out
                                     </Link>
                                 </li>
                             </ul>
                         </li>
                         <li>
-                            <Link to="/finance" className="text-white hover:text-indigo-400 transition font-medium">
+                            <Link to="/finance" className="text-white hover:text-indigo-400 transition font-medium" onClick={closeDropdowns}>
                                 Finance
                             </Link>
                         </li>
                         {/* User Dropdown */}
-                        <li className="relative group">
-                            <span className="text-white hover:text-indigo-400 transition font-medium cursor-pointer flex items-center">
+                        <li className="relative">
+                            <span
+                                className="text-white hover:text-indigo-400 transition font-medium cursor-pointer flex items-center"
+                                onClick={() => setUserDropdownOpen(!userDropdownOpen)}
+                            >
                                 User
                                 <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
                                 </svg>
                             </span>
-                            <ul className="absolute hidden group-hover:block bg-gray-700 text-white rounded-lg shadow-lg mt-2 w-48">
+                            <ul
+                                className={`${
+                                    userDropdownOpen ? 'block' : 'hidden'
+                                } absolute bg-gray-700 text-white rounded-lg shadow-lg mt-2 w-48 z-50`}
+                            >
                                 <li>
-                                    <Link to="/user-login" className="block px-4 py-2 hover:bg-gray-600 transition">
+                                    <Link
+                                        to="/user-login"
+                                        className="block px-4 py-2 hover:bg-gray-600 transition"
+                                        onClick={closeDropdowns}
+                                    >
                                         Log In
                                     </Link>
                                 </li>
                                 <li>
-                                    <Link to="/user-register" className="block px-4 py-2 hover:bg-gray-600 transition">
+                                    <Link
+                                        to="/user-register"
+                                        className="block px-4 py-2 hover:bg-gray-600 transition"
+                                        onClick={closeDropdowns}
+                                    >
                                         Register
                                     </Link>
                                 </li>
-                                <li><hr className="border-gray-600" /></li>
                                 <li>
-                                    <Link to="/user-dashboard" className="block px-4 py-2 hover:bg-gray-600 transition">
+                                    <hr className="border-gray-600" />
+                                </li>
+                                <li>
+                                    <Link
+                                        to="/user-dashboard"
+                                        className="block px-4 py-2 hover:bg-gray-600 transition"
+                                        onClick={closeDropdowns}
+                                    >
                                         Dashboard
                                     </Link>
                                 </li>
                                 <li>
-                                    <Link to="/user-logout" className="block px-4 py-2 hover:bg-gray-600 transition">
+                                    <Link
+                                        to="/user-logout"
+                                        className="block px-4 py-2 hover:bg-gray-600 transition"
+                                        onClick={closeDropdowns}
+                                    >
                                         Log Out
                                     </Link>
                                 </li>
