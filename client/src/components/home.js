@@ -433,7 +433,7 @@ function Home() {
                         <p className="text-xl mb-8 max-w-2xl mx-auto">Join thousands of students already transforming their careers with our expert-led courses.</p>
                         <div className="flex justify-center gap-4">
                             <Link to="/user-register" className="bg-yellow-400 text-gray-900 px-6 py-3 rounded-lg font-semibold hover:bg-yellow-500 transition">
-                                Get Started Free
+                                Get Started Free 
                             </Link>
                             <Link to="/all-units" className="border-2 border-white px-6 py-3 rounded-lg font-semibold hover:bg-white hover:text-indigo-600 transition">
                                 Browse All Courses
@@ -455,7 +455,7 @@ function Home() {
                     >
                         <h6 className="text-indigo-600 font-semibold uppercase">Testimonials</h6>
                         <h2 className="text-4xl font-bold text-gray-800 mb-4">What Our Students Say</h2>
-                        <p className="text-gray-600 max-w-2xl mx-auto">Real stories from our successful students.</p>
+                        <p className="text-gray-600 max-w-2xl mx-auto">Real stories from our Successful students.</p>
                     </motion.div>
                     <div className="carousel slide" data-bs-ride="carousel" id="testimonialCarousel">
                         <div className="carousel-inner">
