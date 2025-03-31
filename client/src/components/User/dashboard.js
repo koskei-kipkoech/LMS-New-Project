@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import Sidebar from './sidebar';
 import axios from 'axios';
@@ -35,14 +35,16 @@ function Dashboard() {
                     <Sidebar />
                 </aside>
                 <section className="col-md-9">
-                    <h5 className='bold mb-4' style={{ color: 'dark' }}>Student Dashboard</h5>
+                    <h5 className='bold mb-4'>Student Dashboard</h5>
                     <div className="row mb-4">
                         <div className="col-md-4">
                             <div className="card bg-primary text-white">
                                 <div className="card-body">
                                     <h5 className="card-title">Enrolled Courses</h5>
                                     <h2 className="card-text">{dashboardData.enrolledCourses}</h2>
-                                    <Link to="/enrolled-courses" className="text-white">View Courses →</Link>
+                                    <Link to="/my-units" className="text-white">
+                                        View Courses →
+                                    </Link>
                                 </div>
                             </div>
                         </div>
@@ -51,7 +53,9 @@ function Dashboard() {
                                 <div className="card-body">
                                     <h5 className="card-title">Completed Courses</h5>
                                     <h2 className="card-text">{dashboardData.completedCourses}</h2>
-                                    <Link to="/completed-courses" className="text-white">View Details →</Link>
+                                    <Link to="/my-units" className="text-white">
+                                        View Details →
+                                    </Link>
                                 </div>
                             </div>
                         </div>
@@ -60,7 +64,9 @@ function Dashboard() {
                                 <div className="card-body">
                                     <h5 className="card-title">Average Score</h5>
                                     <h2 className="card-text">{dashboardData.averageScore}%</h2>
-                                    <Link to="/performance" className="text-white">View Performance →</Link>
+                                    <Link to="/my-performance" className="text-white">
+                                        View Performance →
+                                    </Link>
                                 </div>
                             </div>
                         </div>
