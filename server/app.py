@@ -905,28 +905,35 @@ def get_testimonials():
 @app.route('/api/student/dashboard/<int:student_id>', methods=['GET', 'OPTIONS'])
 @token_required
 def get_student_dashboard(current_user, student_id):
+    # Allow preflight OPTIONS request
     if request.method == 'OPTIONS':
         return '', 204
 
-    # Use current_user.id directly instead of calling get_jwt_identity() again.
-    if current_user.id != student_id:
+    # Ensure that the logged-in user is accessing their own dashboard.
+    if current_user.id != student_id or current_user.role != 'student':
         return jsonify({'error': 'Unauthorized access'}), 403
 
     try:
+        # Count total enrollments (courses student is enrolled in)
         enrolled_courses = Enrollment.query.filter_by(student_id=student_id).count()
+
+        # Count completed courses (where progress is 100)
         completed_courses = Enrollment.query.filter_by(student_id=student_id, progress=100).count()
 
+        # Calculate average score using the grade field from enrollments that have been graded
         enrollments = Enrollment.query.filter_by(student_id=student_id).all()
         total_score = 0
-        total_assignments = 0
+        graded_count = 0
         for enrollment in enrollments:
             if enrollment.grade is not None:
                 total_score += enrollment.grade
-                total_assignments += 1
-        average_score = round(total_score / total_assignments * 100) if total_assignments > 0 else 0
+                graded_count += 1
+        average_score = round((total_score / graded_count) * 100) if graded_count > 0 else 0
 
-        # Optionally, fetch recent activities
-        recent_enrollments = Enrollment.query.filter_by(student_id=student_id).order_by(Enrollment.enrollment_date.desc()).limit(5).all()
+        # Fetch recent activities (for example, the last 5 enrollments)
+        recent_enrollments = Enrollment.query.filter_by(student_id=student_id)\
+            .order_by(Enrollment.enrollment_date.desc())\
+            .limit(5).all()
         recent_activities = [{
             'description': f"Enrolled in {enrollment.unit.title}",
             'date': enrollment.enrollment_date.strftime('%Y-%m-%d %H:%M')
@@ -937,27 +944,57 @@ def get_student_dashboard(current_user, student_id):
             'completedCourses': completed_courses,
             'averageScore': average_score,
             'recentActivities': recent_activities
-        })
+        }), 200
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/teacher/<int:teacher_id>', methods=['GET', 'OPTIONS'])
+def get_teacher_details(teacher_id):
+    # Handle preflight OPTIONS request
+    if request.method == 'OPTIONS':
+        response = make_response()
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'GET,OPTIONS')
+        return response, 204
 
     try:
-        enrollments = Enrollment.query.filter_by(student_id=student_id).all()
-        units_data = [
-            {
-                'id': enrollment.unit.id,
-                'title': enrollment.unit.title,
-                'description': enrollment.unit.description,
-                'category': enrollment.unit.category,
-                'teacher': enrollment.unit.teacher.username,
-                'progress': enrollment.progress or 0
+        # Retrieve teacher data (ensure the user is a teacher)
+        teacher = User.query.filter_by(id=teacher_id, role='teacher').first()
+        if not teacher:
+            return jsonify({'error': 'Teacher not found'}), 404
+
+        # Retrieve teacher's units ordered by creation date (most recent first)
+        units = Unit.query.filter_by(teacher_id=teacher_id).order_by(Unit.created_at.desc()).all()
+        units_data = [unit.to_dict() for unit in units]
+
+        # Calculate overall rating across all units
+        total_rating = 0
+        total_count = 0
+        for unit in units:
+            unit_ratings = Rating.query.filter_by(unit_id=unit.id).all()
+            if unit_ratings:
+                total_rating += sum(r.score for r in unit_ratings)
+                total_count += len(unit_ratings)
+        avg_rating = total_rating / total_count if total_count > 0 else 0
+
+        teacher_data = {
+            'id': teacher.id,
+            'username': teacher.username,
+            'email': teacher.email,
+            'bio': teacher.bio,
+            'qualifications': teacher.qualifications,
+            'units': units_data,
+            'ratings': {
+                'average': avg_rating,
+                'count': total_count
             }
-            for enrollment in enrollments
-        ]
-        return jsonify(units_data)
+        }
+        return jsonify(teacher_data)
     except Exception as e:
-        return jsonify({'error': 'Failed to fetch student units'}), 422
+        return jsonify({'error': str(e)}), 500
+
 
 
 @app.route('/api/users/<int:user_id>', methods=['GET'])
